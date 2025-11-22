@@ -22,6 +22,8 @@ class DrawingApp:
         self.UNIFY_THRESHOLD = 15  # Distancia mínima para unificar puntos
         self.current_y_offset = 0  # Variable para mantener el desplazamiento vertical de las líneas
         self.adding_label_mode = False  # Modo para agregar etiquetas adicionales
+        self.text_labels = []  # Lista de etiquetas de texto personalizadas
+        self.dragging_text_label = None  # Etiqueta de texto siendo arrastrada
         
         # Constantes para acotación profesional
         self.DIMENSION_OFFSET = 30  # Separación de la línea de cota respecto a la línea principal
@@ -52,6 +54,7 @@ class DrawingApp:
         self.canvas.bind("<B1-Motion>", self.move_point)
         self.canvas.bind("<ButtonRelease-1>", self.release_point)
         self.canvas.bind("<Button-3>", self.on_label_right_click)
+        self.canvas.bind("<Double-Button-1>", self.on_text_label_double_click)
 
     def setup_ui(self):
         # Barra de herramientas IZQUIERDA
@@ -359,21 +362,22 @@ class DrawingApp:
             if self.on_canvas_click_zone_mode(event):
                 return
         
-        # Prioridad 2: Modo de agregar etiquetas
-        if self.adding_label_mode:
-            self.add_extra_label(event)
+        # No hacer nada si se está arrastrando una etiqueta de texto
+        if self.dragging_text_label is not None:
+            return
+        
+        # Lógica normal para líneas
+        if self.start_point is None:
+            self.start_point = (event.x, event.y)
+            self.canvas.create_oval(event.x-5, event.y-5, event.x+5, event.y+5, fill="red")
         else:
-            if self.start_point is None:
-                self.start_point = (event.x, event.y)
-                self.canvas.create_oval(event.x-5, event.y-5, event.x+5, event.y+5, fill="red")
-            else:
-                for line in self.lines:
-                    if self.is_within_point(event.x, event.y, *line["start"]):
-                        self.selected_point = ("start", line)
-                        self.dragging = True
-                    elif self.is_within_point(event.x, event.y, *line["end"]):
-                        self.selected_point = ("end", line)
-                        self.dragging = True
+            for line in self.lines:
+                if self.is_within_point(event.x, event.y, *line["start"]):
+                    self.selected_point = ("start", line)
+                    self.dragging = True
+                elif self.is_within_point(event.x, event.y, *line["end"]):
+                    self.selected_point = ("end", line)
+                    self.dragging = True
 
     def is_within_point(self, click_x, click_y, point_x, point_y):
         return (
@@ -658,6 +662,7 @@ class DrawingApp:
         self.start_point = None
         self.lines.clear()
         self.labels.clear()
+        self.text_labels.clear()  # Limpiar etiquetas de texto
         self.current_y_offset = 0  # Reiniciar el desplazamiento vertical al limpiar el canvas
 
     def redraw_canvas(self):
@@ -680,6 +685,33 @@ class DrawingApp:
             self.canvas.create_line(*line["start"], *line["end"], fill=color, width=width)
             self.create_label(line["start"], line["end"], line["length"])
             self.draw_anchor_points(line["start"], line["end"])
+        
+        # Redibujar etiquetas de texto personalizadas
+        for i, label_data in enumerate(self.text_labels):
+            # Crear fondo
+            bg_rect = self.canvas.create_rectangle(
+                label_data['x'] - 60, label_data['y'] - 15,
+                label_data['x'] + 60, label_data['y'] + 15,
+                fill="yellow", outline="#FF9800", width=2,
+                tags="text_label"
+            )
+            
+            # Crear texto
+            text_id = self.canvas.create_text(
+                label_data['x'], label_data['y'],
+                text=label_data['text'],
+                font=("Arial", 14, "bold"),
+                fill="#333",
+                tags="text_label"
+            )
+            
+            # Actualizar referencias
+            label_data['text_id'] = text_id
+            label_data['bg_id'] = bg_rect
+            
+            # Bindings para arrastrar
+            self.canvas.tag_bind(bg_rect, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
+            self.canvas.tag_bind(text_id, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
         
         # Dibujar rosa de los vientos (siempre al final, encima de todo)
         self.draw_compass()
@@ -914,22 +946,136 @@ class DrawingApp:
         )
     
     def enable_add_label_mode(self):
-        # Activar el modo de agregar etiqueta
-        self.adding_label_mode = True
-        self.canvas.bind("<Button-1>", self.add_extra_label)
-        print("Modo para agregar etiqueta adicional activado. Haga clic en el canvas para colocar la etiqueta.")
+        """Agrega una etiqueta de texto en el centro del canvas."""
+        # Obtener el texto de la etiqueta
+        text = self.extra_label_var.get().strip()
+        
+        if not text:
+            messagebox.showwarning(
+                "Texto Vacío",
+                "Por favor, escribe un texto en la caja antes de agregar la etiqueta."
+            )
+            return
+        
+        # Calcular centro del canvas
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        center_x = canvas_width / 2
+        center_y = canvas_height / 2
+        
+        # Crear fondo para mejor visibilidad
+        bg_rect = self.canvas.create_rectangle(
+            center_x - 60, center_y - 15,
+            center_x + 60, center_y + 15,
+            fill="yellow", outline="#FF9800", width=2,
+            tags="text_label"
+        )
+        
+        # Crear la etiqueta en el centro
+        label_id = self.canvas.create_text(
+            center_x, center_y,
+            text=text,
+            font=("Arial", 14, "bold"),
+            fill="#333",
+            tags="text_label"
+        )
+        
+        # Guardar referencia
+        self.text_labels.append({
+            'text_id': label_id,
+            'bg_id': bg_rect,
+            'text': text,
+            'x': center_x,
+            'y': center_y
+        })
+        
+        # Hacer que el rectángulo sea clickeable para mover
+        self.canvas.tag_bind(bg_rect, "<Button-1>", lambda e: self.start_drag_text_label(e, len(self.text_labels) - 1))
+        self.canvas.tag_bind(label_id, "<Button-1>", lambda e: self.start_drag_text_label(e, len(self.text_labels) - 1))
+        
+        # Limpiar campo de texto
+        self.extra_label_var.set("")
+        
+        messagebox.showinfo(
+            "Etiqueta Agregada",
+            f"✅ Etiqueta '{text}' agregada en el centro.\n\n"
+            "• Arrastra la etiqueta para moverla\n"
+            "• Doble clic para editar el texto\n"
+            "• Clic derecho para eliminar"
+        )
+        
+        print(f"Etiqueta '{text}' añadida en el centro ({center_x}, {center_y}).")
 
     def add_extra_label(self, event):
-        # Obtener el texto de la etiqueta desde el campo de texto
-        text = self.extra_label_var.get()
-        if text:
-            # Crear la etiqueta en la posición del click
-            self.canvas.create_text(event.x, event.y, text=text, font=("Arial", 12), fill="blue")
-            # Restaurar el binding original
-            self.canvas.bind("<Button-1>", self.on_canvas_click)
-            # Desactivar el modo de agregar etiqueta
-            self.adding_label_mode = False
-            print(f"Etiqueta '{text}' añadida en ({event.x}, {event.y}).")
+        """Método legacy - ahora usa enable_add_label_mode directamente."""
+        pass
+    
+    def start_drag_text_label(self, event, index):
+        """Inicia el arrastre de una etiqueta de texto."""
+        if index < len(self.text_labels):
+            self.dragging_text_label = index
+            # Guardar posición inicial del mouse
+            self.drag_start_x = event.x
+            self.drag_start_y = event.y
+            
+            # Bind para mover
+            self.canvas.bind("<B1-Motion>", self.drag_text_label)
+            self.canvas.bind("<ButtonRelease-1>", self.stop_drag_text_label)
+    
+    def drag_text_label(self, event):
+        """Arrastra una etiqueta de texto."""
+        if self.dragging_text_label is not None:
+            index = self.dragging_text_label
+            if index < len(self.text_labels):
+                label_data = self.text_labels[index]
+                
+                # Calcular desplazamiento
+                dx = event.x - self.drag_start_x
+                dy = event.y - self.drag_start_y
+                
+                # Mover ambos elementos
+                self.canvas.move(label_data['text_id'], dx, dy)
+                self.canvas.move(label_data['bg_id'], dx, dy)
+                
+                # Actualizar posición guardada
+                label_data['x'] += dx
+                label_data['y'] += dy
+                
+                # Actualizar posición inicial para el siguiente movimiento
+                self.drag_start_x = event.x
+                self.drag_start_y = event.y
+    
+    def stop_drag_text_label(self, event):
+        """Detiene el arrastre de una etiqueta de texto."""
+        self.dragging_text_label = None
+        
+        # Restaurar bindings normales
+        self.canvas.bind("<B1-Motion>", self.move_point)
+        self.canvas.bind("<ButtonRelease-1>", self.release_point)
+    
+    def on_text_label_double_click(self, event):
+        """Maneja doble clic en etiquetas de texto para editarlas."""
+        # Buscar si el doble clic fue sobre una etiqueta de texto
+        items = self.canvas.find_overlapping(event.x - 5, event.y - 5, event.x + 5, event.y + 5)
+        
+        for item in items:
+            # Verificar si es una etiqueta de texto
+            for i, label_data in enumerate(self.text_labels):
+                if item == label_data['text_id'] or item == label_data['bg_id']:
+                    # Editar texto
+                    new_text = askstring(
+                        "Editar Etiqueta",
+                        "Nuevo texto:",
+                        initialvalue=label_data['text']
+                    )
+                    
+                    if new_text and new_text.strip():
+                        # Actualizar texto
+                        self.canvas.itemconfig(label_data['text_id'], text=new_text.strip())
+                        label_data['text'] = new_text.strip()
+                        print(f"Etiqueta editada: '{new_text.strip()}'")
+                    
+                    return
 
     def export_to_svg(self):
         # Abrir un cuadro de diálogo para guardar el archivo
@@ -988,12 +1134,20 @@ class DrawingApp:
                 text = self.canvas.itemcget(label, "text")
                 svg_content += f'  <text x="{x}" y="{y}" font-family="Arial" font-size="12" fill="black">{text}</text>\n'
 
-        # Exportar etiquetas adicionales
-        for item in self.canvas.find_all():
-            if self.canvas.type(item) == 'text' and item not in [l[0] for l in self.labels]:
-                x, y = self.canvas.coords(item)
-                text = self.canvas.itemcget(item, "text")
-                svg_content += f'  <text x="{x}" y="{y}" font-family="Arial" font-size="12" fill="blue">{text}</text>\n'
+        # Exportar etiquetas de texto personalizadas
+        for label_data in self.text_labels:
+            x = label_data['x']
+            y = label_data['y']
+            text = label_data['text']
+            
+            # Rectángulo de fondo
+            svg_content += f'  <rect x="{x - 60}" y="{y - 15}" width="120" height="30" '
+            svg_content += f'fill="yellow" stroke="#FF9800" stroke-width="2" />\n'
+            
+            # Texto
+            svg_content += f'  <text x="{x}" y="{y}" font-family="Arial" font-size="14" '
+            svg_content += f'font-weight="bold" fill="#333" text-anchor="middle" '
+            svg_content += f'alignment-baseline="middle">{text}</text>\n'
 
         # Exportar rosa de los vientos
         cx = canvas_width - self.compass_size - 20
