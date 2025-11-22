@@ -23,6 +23,12 @@ class DrawingApp:
         self.current_y_offset = 0  # Variable para mantener el desplazamiento vertical de las líneas
         self.adding_label_mode = False  # Modo para agregar etiquetas adicionales
         
+        # Constantes para acotación profesional
+        self.DIMENSION_OFFSET = 30  # Separación de la línea de cota respecto a la línea principal
+        self.EXTENSION_GAP = 5  # Espacio entre línea y línea de extensión
+        self.EXTENSION_OVERSHOOT = 8  # Cuánto sobresalen las líneas de extensión
+        self.ARROW_SIZE = 8  # Tamaño de las flechas
+        
         # Variables para gestión de zonas
         self.zone_manager = ZoneManager(scale=self.SCALE)
         self.zone_selection_mode = False  # Modo para seleccionar líneas para zonas
@@ -418,27 +424,149 @@ class DrawingApp:
         self.selected_point = None
 
     def create_label(self, start, end, length):
+        """Crea acotación profesional con líneas de extensión y cota."""
+        # Calcular el ángulo de la línea
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        line_angle = math.atan2(dy, dx)
+        
+        # Calcular el ángulo perpendicular (90° a la línea)
+        perp_angle = line_angle + math.pi / 2
+        
+        # Determinar el lado de la acotación (arriba/abajo o izq/der)
+        # Usar un offset adaptativo para que siempre quede visible
+        offset_x = math.cos(perp_angle) * self.DIMENSION_OFFSET
+        offset_y = math.sin(perp_angle) * self.DIMENSION_OFFSET
+        
+        # Punto medio de la línea principal
         mid_x = (start[0] + end[0]) / 2
         mid_y = (start[1] + end[1]) / 2
-        label = self.canvas.create_text(mid_x, mid_y - 10, text=f"{length:.2f} m", font=("Arial", 12))
-
-        # Añadir evento de doble clic para editar la longitud
-        self.canvas.tag_bind(label, "<Double-1>", lambda event, idx=len(self.lines) - 1: self.on_label_double_click(idx))
-
-        self.labels.append((label, len(self.lines) - 1))
+        
+        # --- LÍNEAS DE EXTENSIÓN ---
+        # Calcular puntos para líneas de extensión desde los extremos
+        gap_x = math.cos(perp_angle) * self.EXTENSION_GAP
+        gap_y = math.sin(perp_angle) * self.EXTENSION_GAP
+        overshoot_x = math.cos(perp_angle) * (self.DIMENSION_OFFSET + self.EXTENSION_OVERSHOOT)
+        overshoot_y = math.sin(perp_angle) * (self.DIMENSION_OFFSET + self.EXTENSION_OVERSHOOT)
+        
+        # Línea de extensión 1 (desde start)
+        ext1_start_x = start[0] + gap_x
+        ext1_start_y = start[1] + gap_y
+        ext1_end_x = start[0] + overshoot_x
+        ext1_end_y = start[1] + overshoot_y
+        
+        # Línea de extensión 2 (desde end)
+        ext2_start_x = end[0] + gap_x
+        ext2_start_y = end[1] + gap_y
+        ext2_end_x = end[0] + overshoot_x
+        ext2_end_y = end[1] + overshoot_y
+        
+        # Dibujar líneas de extensión (líneas finas, gris)
+        ext_line_1 = self.canvas.create_line(
+            ext1_start_x, ext1_start_y, ext1_end_x, ext1_end_y,
+            fill="#666", width=1, tags="dimension"
+        )
+        ext_line_2 = self.canvas.create_line(
+            ext2_start_x, ext2_start_y, ext2_end_x, ext2_end_y,
+            fill="#666", width=1, tags="dimension"
+        )
+        
+        # --- LÍNEA DE COTA ---
+        # Puntos de inicio y fin de la línea de cota
+        dim_start_x = start[0] + offset_x
+        dim_start_y = start[1] + offset_y
+        dim_end_x = end[0] + offset_x
+        dim_end_y = end[1] + offset_y
+        
+        # Dibujar línea de cota
+        dim_line = self.canvas.create_line(
+            dim_start_x, dim_start_y, dim_end_x, dim_end_y,
+            fill="#333", width=1, tags="dimension"
+        )
+        
+        # --- FLECHAS EN LOS EXTREMOS ---
+        # Calcular puntos para las flechas
+        arrow1 = self._create_arrow_head(dim_start_x, dim_start_y, line_angle + math.pi)
+        arrow2 = self._create_arrow_head(dim_end_x, dim_end_y, line_angle)
+        
+        # --- TEXTO DE DIMENSIÓN ---
+        # Colocar texto en el centro de la línea de cota
+        text_x = (dim_start_x + dim_end_x) / 2
+        text_y = (dim_start_y + dim_end_y) / 2
+        
+        # Calcular ángulo del texto para que siempre sea legible
+        text_angle_deg = math.degrees(line_angle)
+        # Normalizar el ángulo para que el texto no aparezca al revés
+        if text_angle_deg > 90 or text_angle_deg < -90:
+            text_angle_deg += 180
+        
+        # Crear texto con fondo blanco para mejor legibilidad
+        label_bg = self.canvas.create_rectangle(
+            text_x - 25, text_y - 10, text_x + 25, text_y + 10,
+            fill="white", outline="", tags="dimension"
+        )
+        
+        label = self.canvas.create_text(
+            text_x, text_y,
+            text=f"{length:.2f} m",
+            font=("Arial", 10),
+            fill="#000",
+            tags="dimension"
+        )
+        
+        # Añadir evento de doble clic para editar
+        self.canvas.tag_bind(label, "<Double-1>", 
+                           lambda event, idx=len(self.lines) - 1: self.on_label_double_click(idx))
+        
+        # Guardar referencias de todos los elementos de la acotación
+        self.labels.append({
+            'text': label,
+            'bg': label_bg,
+            'dim_line': dim_line,
+            'ext_lines': [ext_line_1, ext_line_2],
+            'arrows': arrow1 + arrow2,
+            'index': len(self.lines) - 1
+        })
+    
+    def _create_arrow_head(self, x, y, angle):
+        """Crea una flecha en el punto especificado con el ángulo dado."""
+        # Calcular los tres puntos del triángulo de la flecha
+        tip_x = x
+        tip_y = y
+        
+        # Base de la flecha
+        base_angle1 = angle + math.radians(150)
+        base_angle2 = angle + math.radians(-150)
+        
+        base1_x = tip_x + self.ARROW_SIZE * math.cos(base_angle1)
+        base1_y = tip_y + self.ARROW_SIZE * math.sin(base_angle1)
+        base2_x = tip_x + self.ARROW_SIZE * math.cos(base_angle2)
+        base2_y = tip_y + self.ARROW_SIZE * math.sin(base_angle2)
+        
+        # Crear polígono de flecha
+        arrow = self.canvas.create_polygon(
+            tip_x, tip_y, base1_x, base1_y, base2_x, base2_y,
+            fill="#333", outline="#333", tags="dimension"
+        )
+        
+        return [arrow]
 
     def on_label_right_click(self, event):
         clicked_label = None
-        for label, index in self.labels:
-            x, y = self.canvas.coords(label)
-            if abs(event.x - x) < 20 and abs(event.y - y) < 10:
-                clicked_label = (label, index)
-                break
+        for label_data in self.labels:
+            label = label_data['text']
+            index = label_data['index']
+            coords = self.canvas.coords(label)
+            if coords:
+                x, y = coords
+                if abs(event.x - x) < 30 and abs(event.y - y) < 15:
+                    clicked_label = index
+                    break
 
-        if clicked_label:
+        if clicked_label is not None:
             new_length = askfloat("Editar Longitud", "Introduce la nueva longitud (en metros):")
             if new_length is not None:
-                self.update_line_length(clicked_label[1], new_length)
+                self.update_line_length(clicked_label, new_length)
 
     def on_label_double_click(self, index):
         new_length = askfloat("Editar Longitud", "Introduce la nueva longitud (en metros):")
@@ -459,13 +587,10 @@ class DrawingApp:
         self.redraw_canvas()
 
     def update_label(self, line):
-        index = self.lines.index(line)
-        start, end = line["start"], line["end"]
-        mid_x = (start[0] + end[0]) / 2
-        mid_y = (start[1] + end[1]) / 2
-        label_text = f"{line['length']:.2f} m"
-        self.canvas.coords(self.labels[index][0], mid_x, mid_y - 10)
-        self.canvas.itemconfig(self.labels[index][0], text=label_text)
+        """Actualiza la acotación cuando cambia una línea."""
+        # Simplemente redibujar todo es más fácil con el nuevo sistema
+        # ya que la acotación es compleja
+        self.redraw_canvas()
 
     def calculate_length(self, start, end):
         dx = (end[0] - start[0]) / self.SCALE
