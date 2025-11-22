@@ -24,6 +24,8 @@ class DrawingApp:
         self.adding_label_mode = False  # Modo para agregar etiquetas adicionales
         self.text_labels = []  # Lista de etiquetas de texto personalizadas
         self.dragging_text_label = None  # Etiqueta de texto siendo arrastrada
+        self.selected_text_label = None  # Etiqueta de texto seleccionada para rotación
+        self.rotation_control_window = None  # Ventana de control de rotación
         
         # Constantes para acotación profesional
         self.DIMENSION_OFFSET = 30  # Separación de la línea de cota respecto a la línea principal
@@ -688,22 +690,43 @@ class DrawingApp:
         
         # Redibujar etiquetas de texto personalizadas
         for i, label_data in enumerate(self.text_labels):
-            # Crear fondo
-            bg_rect = self.canvas.create_rectangle(
-                label_data['x'] - 60, label_data['y'] - 15,
-                label_data['x'] + 60, label_data['y'] + 15,
-                fill="yellow", outline="#FF9800", width=2,
-                tags="text_label"
-            )
+            angle = label_data.get('angle', 0)
             
-            # Crear texto
+            # Crear texto primero para obtener su bbox
             text_id = self.canvas.create_text(
                 label_data['x'], label_data['y'],
                 text=label_data['text'],
                 font=("Arial", 14, "bold"),
                 fill="#333",
+                angle=angle,  # Tkinter soporta rotación de texto con el parámetro 'angle'
                 tags="text_label"
             )
+            
+            # Obtener bounding box del texto rotado
+            bbox = self.canvas.bbox(text_id)
+            if bbox:
+                x1, y1, x2, y2 = bbox
+                padding = 5
+                
+                # Crear fondo alrededor del texto
+                bg_rect = self.canvas.create_rectangle(
+                    x1 - padding, y1 - padding,
+                    x2 + padding, y2 + padding,
+                    fill="yellow", outline="#FF9800", width=2,
+                    tags="text_label"
+                )
+                
+                # Subir el texto para que quede encima del fondo
+                self.canvas.tag_raise(text_id)
+            else:
+                # Fallback si no se puede obtener bbox
+                bg_rect = self.canvas.create_rectangle(
+                    label_data['x'] - 60, label_data['y'] - 15,
+                    label_data['x'] + 60, label_data['y'] + 15,
+                    fill="yellow", outline="#FF9800", width=2,
+                    tags="text_label"
+                )
+                self.canvas.tag_raise(text_id)
             
             # Actualizar referencias
             label_data['text_id'] = text_id
@@ -711,6 +734,11 @@ class DrawingApp:
             
             # Bindings para arrastrar
             self.canvas.tag_bind(bg_rect, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
+            self.canvas.tag_bind(text_id, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
+            
+            # Bindings para rotación (clic derecho)
+            self.canvas.tag_bind(bg_rect, "<Button-3>", lambda e, idx=i: self.show_rotation_control(idx))
+            self.canvas.tag_bind(text_id, "<Button-3>", lambda e, idx=i: self.show_rotation_control(idx))
             self.canvas.tag_bind(text_id, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
         
         # Dibujar rosa de los vientos (siempre al final, encima de todo)
@@ -996,12 +1024,17 @@ class DrawingApp:
             'bg_id': bg_rect,
             'text': text,
             'x': center_x,
-            'y': center_y
+            'y': center_y,
+            'angle': 0  # Ángulo de rotación en grados
         })
         
-        # Hacer que el rectángulo sea clickeable para mover
+        # Hacer que el rectángulo sea clickeable para mover y seleccionar
         self.canvas.tag_bind(bg_rect, "<Button-1>", lambda e: self.start_drag_text_label(e, len(self.text_labels) - 1))
         self.canvas.tag_bind(label_id, "<Button-1>", lambda e: self.start_drag_text_label(e, len(self.text_labels) - 1))
+        
+        # Binding para clic derecho - mostrar control de rotación
+        self.canvas.tag_bind(bg_rect, "<Button-3>", lambda e: self.show_rotation_control(len(self.text_labels) - 1))
+        self.canvas.tag_bind(label_id, "<Button-3>", lambda e: self.show_rotation_control(len(self.text_labels) - 1))
         
         # Limpiar campo de texto
         self.extra_label_var.set("")
@@ -1011,7 +1044,7 @@ class DrawingApp:
             f"✅ Etiqueta '{text}' agregada en el centro.\n\n"
             "• Arrastra la etiqueta para moverla\n"
             "• Doble clic para editar el texto\n"
-            "• Clic derecho para eliminar"
+            "• Clic derecho para rotar la etiqueta 🔄"
         )
         
         print(f"Etiqueta '{text}' añadida en el centro ({center_x}, {center_y}).")
@@ -1086,6 +1119,119 @@ class DrawingApp:
                         print(f"Etiqueta editada: '{new_text.strip()}'")
                     
                     return
+    
+    def show_rotation_control(self, index):
+        """Muestra una ventana de control para rotar la etiqueta seleccionada."""
+        if index >= len(self.text_labels):
+            return
+        
+        self.selected_text_label = index
+        label_data = self.text_labels[index]
+        
+        # Cerrar ventana anterior si existe
+        if self.rotation_control_window is not None:
+            try:
+                self.rotation_control_window.destroy()
+            except:
+                pass
+        
+        # Crear ventana de control
+        self.rotation_control_window = tk.Toplevel(self.root)
+        self.rotation_control_window.title("🔄 Rotar Etiqueta")
+        self.rotation_control_window.geometry("400x150")
+        self.rotation_control_window.resizable(False, False)
+        
+        # Centrar ventana
+        self.rotation_control_window.transient(self.root)
+        
+        # Frame principal
+        main_frame = tk.Frame(self.rotation_control_window, bg="#f0f0f0")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Título
+        tk.Label(
+            main_frame,
+            text=f"Rotación de: '{label_data['text']}'",
+            font=("Arial", 11, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(0, 10))
+        
+        # Frame para el slider
+        slider_frame = tk.Frame(main_frame, bg="#f0f0f0")
+        slider_frame.pack(fill=tk.X, pady=10)
+        
+        # Label izquierda
+        tk.Label(
+            slider_frame,
+            text="↶ -180°",
+            bg="#f0f0f0",
+            font=("Arial", 9),
+            fg="#2196F3"
+        ).pack(side=tk.LEFT)
+        
+        # Slider de rotación
+        rotation_slider = tk.Scale(
+            slider_frame,
+            from_=-180,
+            to=180,
+            orient=tk.HORIZONTAL,
+            length=200,
+            bg="#f0f0f0",
+            highlightthickness=0,
+            troughcolor="#ddd",
+            command=lambda val: self.rotate_text_label(index, float(val))
+        )
+        rotation_slider.set(label_data.get('angle', 0))
+        rotation_slider.pack(side=tk.LEFT, padx=10)
+        
+        # Label derecha
+        tk.Label(
+            slider_frame,
+            text="+180° ↷",
+            bg="#f0f0f0",
+            font=("Arial", 9),
+            fg="#2196F3"
+        ).pack(side=tk.LEFT)
+        
+        # Label de ángulo actual
+        self.angle_label = tk.Label(
+            main_frame,
+            text=f"Ángulo: {label_data.get('angle', 0):.0f}°",
+            font=("Arial", 10),
+            bg="#f0f0f0",
+            fg="#666"
+        )
+        self.angle_label.pack(pady=5)
+        
+        # Botón cerrar
+        tk.Button(
+            main_frame,
+            text="✓ Cerrar",
+            command=self.rotation_control_window.destroy,
+            bg="#4CAF50",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            width=15
+        ).pack(pady=(10, 0))
+        
+        print(f"Control de rotación abierto para etiqueta: '{label_data['text']}'")
+    
+    def rotate_text_label(self, index, angle):
+        """Rota una etiqueta de texto al ángulo especificado."""
+        if index >= len(self.text_labels):
+            return
+        
+        label_data = self.text_labels[index]
+        label_data['angle'] = angle
+        
+        # Actualizar label de ángulo si existe
+        if hasattr(self, 'angle_label'):
+            self.angle_label.config(text=f"Ángulo: {angle:.0f}°")
+        
+        # Redibujar el canvas para aplicar la rotación
+        self.redraw_canvas()
+        
+        print(f"Etiqueta '{label_data['text']}' rotada a {angle:.0f}°")
 
     def export_to_svg(self):
         # Abrir un cuadro de diálogo para guardar el archivo
@@ -1149,15 +1295,21 @@ class DrawingApp:
             x = label_data['x']
             y = label_data['y']
             text = label_data['text']
+            angle = label_data.get('angle', 0)
+            
+            # Grupo con transformación para rotación
+            svg_content += f'  <g transform="rotate({angle}, {x}, {y})">\n'
             
             # Rectángulo de fondo
-            svg_content += f'  <rect x="{x - 60}" y="{y - 15}" width="120" height="30" '
+            svg_content += f'    <rect x="{x - 60}" y="{y - 15}" width="120" height="30" '
             svg_content += f'fill="yellow" stroke="#FF9800" stroke-width="2" />\n'
             
             # Texto
-            svg_content += f'  <text x="{x}" y="{y}" font-family="Arial" font-size="14" '
+            svg_content += f'    <text x="{x}" y="{y}" font-family="Arial" font-size="14" '
             svg_content += f'font-weight="bold" fill="#333" text-anchor="middle" '
             svg_content += f'alignment-baseline="middle">{text}</text>\n'
+            
+            svg_content += f'  </g>\n'
 
         # Exportar rosa de los vientos
         cx = canvas_width - self.compass_size - 20
