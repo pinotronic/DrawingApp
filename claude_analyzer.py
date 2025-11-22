@@ -33,7 +33,9 @@ class ClaudeAnalyzer:
             )
         
         self.client = Anthropic(api_key=self.api_key)
-        self.model = "claude-3-5-sonnet-20240620"
+        # Usar claude-3-5-sonnet-20241022 o el alias más reciente
+        # Si hay error 404, intentar con claude-3-sonnet-20240229
+        self.model = "claude-3-sonnet-20240229"
         self.geo_utils = GeometryUtils()
     
     def analyze_floor_plan(self, lines: List[Dict], scale: float = 50, zones: List[Dict] = None) -> Dict:

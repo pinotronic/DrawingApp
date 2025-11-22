@@ -302,8 +302,8 @@ class GeometryUtils:
         Calcula el área de una zona específica definida por un conjunto de líneas.
         
         Args:
-            zone_lines: Lista de líneas que definen la zona
-            scale: Escala de píxeles a metros
+            zone_lines: Lista de líneas que definen la zona (coordenadas en píxeles)
+            scale: Escala de píxeles a metros (ej: 50 = 50 píxeles = 1 metro)
         
         Returns:
             Área de la zona en metros cuadrados
@@ -311,7 +311,8 @@ class GeometryUtils:
         if not zone_lines or len(zone_lines) < 3:
             return 0.0
         
-        # Convertir coordenadas a metros
+        # Convertir coordenadas de píxeles a metros
+        # División: píxeles / (píxeles/metro) = metros
         lines_in_meters = []
         for line in zone_lines:
             lines_in_meters.append({
@@ -320,6 +321,7 @@ class GeometryUtils:
                 'length': line.get('length', 0)
             })
         
+        # calculate_polygon_area usa Shoelace formula que ya devuelve área correcta
         return GeometryUtils.calculate_polygon_area(lines_in_meters)
     
     @staticmethod
