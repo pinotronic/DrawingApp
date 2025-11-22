@@ -29,6 +29,10 @@ class DrawingApp:
         self.selected_lines_for_zone = []  # Líneas seleccionadas para crear una zona
         self.zone_canvas_items = {}  # Items del canvas asociados a zonas (polígonos y etiquetas)
         
+        # Variables para orientación y rotación
+        self.rotation_angle = 0  # Ángulo de rotación del plano en grados
+        self.compass_size = 60  # Tamaño de la rosa de los vientos
+        
         # Inicializar Claude Analyzer (con manejo de errores)
         self.claude_analyzer = None
         self._initialize_claude()
@@ -173,6 +177,87 @@ class DrawingApp:
             width=18
         )
         self.delete_zone_button.pack(pady=2)
+
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
+
+        # SECCIÓN: ORIENTACIÓN CARDINAL
+        tk.Label(
+            toolbar,
+            text="🧭 Orientación",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 5))
+        
+        # Frame para botones de rotación rápida
+        rotation_buttons_frame = tk.Frame(toolbar, bg="#f0f0f0")
+        rotation_buttons_frame.pack(pady=5)
+        
+        # Botón rotar izquierda 90°
+        tk.Button(
+            rotation_buttons_frame,
+            text="↶ 90°",
+            command=lambda: self.rotate_drawing(-90),
+            width=6,
+            font=("Arial", 9)
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # Botón 180°
+        tk.Button(
+            rotation_buttons_frame,
+            text="↻ 180°",
+            command=lambda: self.rotate_drawing(180),
+            width=6,
+            font=("Arial", 9)
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # Botón rotar derecha 90°
+        tk.Button(
+            rotation_buttons_frame,
+            text="↷ 90°",
+            command=lambda: self.rotate_drawing(90),
+            width=6,
+            font=("Arial", 9)
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # Selector de ángulo específico
+        tk.Label(toolbar, text="Ángulo:", bg="#f0f0f0", font=("Arial", 9)).pack()
+        
+        angle_frame = tk.Frame(toolbar, bg="#f0f0f0")
+        angle_frame.pack(pady=5)
+        
+        self.angle_var = tk.StringVar(value="0")
+        angle_options = ["0°", "90°", "180°", "270°"]
+        angle_menu = ttk.Combobox(
+            angle_frame,
+            textvariable=self.angle_var,
+            values=angle_options,
+            width=8,
+            state="readonly"
+        )
+        angle_menu.pack(side=tk.LEFT, padx=2)
+        angle_menu.bind("<<ComboboxSelected>>", self.on_angle_selected)
+        
+        # Botón aplicar rotación
+        tk.Button(
+            angle_frame,
+            text="✓",
+            command=self.apply_selected_angle,
+            width=3,
+            font=("Arial", 9, "bold"),
+            bg="#4CAF50",
+            fg="white"
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # Label mostrando orientación actual
+        self.orientation_label = tk.Label(
+            toolbar,
+            text="Rotación: 0°",
+            bg="#f0f0f0",
+            font=("Arial", 8),
+            fg="#666"
+        )
+        self.orientation_label.pack(pady=2)
 
         # Separador
         tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
@@ -421,6 +506,143 @@ class DrawingApp:
             self.canvas.create_line(*line["start"], *line["end"], fill=color, width=width)
             self.create_label(line["start"], line["end"], line["length"])
             self.draw_anchor_points(line["start"], line["end"])
+        
+        # Dibujar rosa de los vientos (siempre al final, encima de todo)
+        self.draw_compass()
+
+    def draw_compass(self):
+        """Dibuja la rosa de los vientos estática en la esquina superior derecha."""
+        canvas_width = self.canvas.winfo_width()
+        
+        # Posición en esquina superior derecha
+        cx = canvas_width - self.compass_size - 20
+        cy = self.compass_size + 20
+        
+        # Círculo de fondo
+        self.canvas.create_oval(
+            cx - self.compass_size//2, cy - self.compass_size//2,
+            cx + self.compass_size//2, cy + self.compass_size//2,
+            fill="white", outline="#333", width=2
+        )
+        
+        # Líneas de los puntos cardinales
+        radius = self.compass_size // 2 - 10
+        
+        # Norte (arriba) - Rojo
+        self.canvas.create_line(
+            cx, cy, cx, cy - radius,
+            fill="red", width=3, arrow=tk.LAST
+        )
+        self.canvas.create_text(
+            cx, cy - radius - 12,
+            text="N", font=("Arial", 12, "bold"), fill="red"
+        )
+        
+        # Sur (abajo)
+        self.canvas.create_line(
+            cx, cy, cx, cy + radius,
+            fill="#666", width=2
+        )
+        self.canvas.create_text(
+            cx, cy + radius + 12,
+            text="S", font=("Arial", 10), fill="#666"
+        )
+        
+        # Este (derecha)
+        self.canvas.create_line(
+            cx, cy, cx + radius, cy,
+            fill="#666", width=2
+        )
+        self.canvas.create_text(
+            cx + radius + 12, cy,
+            text="E", font=("Arial", 10), fill="#666"
+        )
+        
+        # Oeste (izquierda)
+        self.canvas.create_line(
+            cx, cy, cx - radius, cy,
+            fill="#666", width=2
+        )
+        self.canvas.create_text(
+            cx - radius - 12, cy,
+            text="O", font=("Arial", 10), fill="#666"
+        )
+    
+    def rotate_drawing(self, angle_increment):
+        """Rota el dibujo completo por un incremento de ángulo."""
+        if not self.lines:
+            messagebox.showinfo(
+                "Sin dibujo",
+                "No hay ningún dibujo para rotar."
+            )
+            return
+        
+        # Actualizar ángulo de rotación
+        self.rotation_angle = (self.rotation_angle + angle_increment) % 360
+        
+        # Obtener centro del canvas
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        center_x = canvas_width / 2
+        center_y = canvas_height / 2
+        
+        # Convertir ángulo a radianes
+        angle_rad = math.radians(angle_increment)
+        cos_angle = math.cos(angle_rad)
+        sin_angle = math.sin(angle_rad)
+        
+        # Rotar todas las líneas
+        for line in self.lines:
+            # Rotar punto de inicio
+            start_x, start_y = line["start"]
+            rel_x = start_x - center_x
+            rel_y = start_y - center_y
+            new_x = rel_x * cos_angle - rel_y * sin_angle + center_x
+            new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
+            line["start"] = (new_x, new_y)
+            
+            # Rotar punto final
+            end_x, end_y = line["end"]
+            rel_x = end_x - center_x
+            rel_y = end_y - center_y
+            new_x = rel_x * cos_angle - rel_y * sin_angle + center_x
+            new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
+            line["end"] = (new_x, new_y)
+        
+        # Actualizar label de orientación
+        self.orientation_label.config(text=f"Rotación: {self.rotation_angle}°")
+        
+        # Redibujar
+        self.redraw_canvas()
+        
+        print(f"Plano rotado {angle_increment}°. Orientación actual: {self.rotation_angle}°")
+    
+    def on_angle_selected(self, event):
+        """Maneja la selección de ángulo en el combobox."""
+        pass  # Solo actualiza la variable, el usuario debe hacer clic en ✓
+    
+    def apply_selected_angle(self):
+        """Aplica el ángulo seleccionado en el combobox."""
+        selected = self.angle_var.get().replace("°", "")
+        
+        try:
+            target_angle = int(selected)
+            
+            # Calcular incremento necesario
+            angle_increment = target_angle - self.rotation_angle
+            
+            if angle_increment != 0:
+                self.rotate_drawing(angle_increment)
+            else:
+                messagebox.showinfo(
+                    "Sin cambios",
+                    f"El plano ya está en {target_angle}°"
+                )
+        except ValueError:
+            messagebox.showerror(
+                "Error",
+                "Ángulo inválido"
+            )
 
     def enable_add_label_mode(self):
         # Activar el modo de agregar etiqueta
@@ -504,6 +726,48 @@ class DrawingApp:
                 text = self.canvas.itemcget(item, "text")
                 svg_content += f'  <text x="{x}" y="{y}" font-family="Arial" font-size="12" fill="blue">{text}</text>\n'
 
+        # Exportar rosa de los vientos
+        cx = canvas_width - self.compass_size - 20
+        cy = self.compass_size + 20
+        radius = self.compass_size // 2 - 10
+        
+        # Círculo de fondo
+        svg_content += f'  <circle cx="{cx}" cy="{cy}" r="{self.compass_size//2}" '
+        svg_content += f'fill="white" stroke="#333" stroke-width="2" />\n'
+        
+        # Línea Norte (roja)
+        svg_content += f'  <line x1="{cx}" y1="{cy}" x2="{cx}" y2="{cy - radius}" '
+        svg_content += f'stroke="red" stroke-width="3" marker-end="url(#arrowRed)" />\n'
+        svg_content += f'  <text x="{cx}" y="{cy - radius - 12}" '
+        svg_content += f'font-family="Arial" font-size="12" font-weight="bold" '
+        svg_content += f'fill="red" text-anchor="middle">N</text>\n'
+        
+        # Línea Sur
+        svg_content += f'  <line x1="{cx}" y1="{cy}" x2="{cx}" y2="{cy + radius}" '
+        svg_content += f'stroke="#666" stroke-width="2" />\n'
+        svg_content += f'  <text x="{cx}" y="{cy + radius + 12}" '
+        svg_content += f'font-family="Arial" font-size="10" fill="#666" text-anchor="middle">S</text>\n'
+        
+        # Línea Este
+        svg_content += f'  <line x1="{cx}" y1="{cy}" x2="{cx + radius}" y2="{cy}" '
+        svg_content += f'stroke="#666" stroke-width="2" />\n'
+        svg_content += f'  <text x="{cx + radius + 12}" y="{cy}" '
+        svg_content += f'font-family="Arial" font-size="10" fill="#666" '
+        svg_content += f'alignment-baseline="middle">E</text>\n'
+        
+        # Línea Oeste
+        svg_content += f'  <line x1="{cx}" y1="{cy}" x2="{cx - radius}" y2="{cy}" '
+        svg_content += f'stroke="#666" stroke-width="2" />\n'
+        svg_content += f'  <text x="{cx - radius - 12}" y="{cy}" '
+        svg_content += f'font-family="Arial" font-size="10" fill="#666" '
+        svg_content += f'text-anchor="end" alignment-baseline="middle">O</text>\n'
+        
+        # Etiqueta de orientación si hay rotación
+        if self.rotation_angle != 0:
+            svg_content += f'  <text x="{cx}" y="{cy + self.compass_size//2 + 25}" '
+            svg_content += f'font-family="Arial" font-size="9" fill="#666" '
+            svg_content += f'text-anchor="middle">Rotación: {self.rotation_angle}°</text>\n'
+
         svg_content += '</svg>'
 
         # Escribir el contenido SVG en el archivo
@@ -514,7 +778,8 @@ class DrawingApp:
             messagebox.showinfo(
                 "Exportación Exitosa",
                 f"✅ Archivo SVG guardado en:\n{file_path}\n\n"
-                f"Zonas exportadas: {len(self.zone_manager.get_all_zones())}"
+                f"Zonas exportadas: {len(self.zone_manager.get_all_zones())}\n"
+                f"Orientación: {self.rotation_angle}°"
             )
             print(f"Archivo SVG guardado correctamente en {file_path}")
         except Exception as e:
