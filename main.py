@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter.simpledialog import askfloat
+from tkinter import scrolledtext, messagebox
 import math
 from tkinter import filedialog
+from claude_analyzer import ClaudeAnalyzer, load_env_file
 
 class DrawingApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Drawing App")
+        self.root.title("Drawing App - Planos para Avalúos")
 
         # Configuración del canvas
         self.canvas = tk.Canvas(root, width=1335, height=660, bg="white")
@@ -23,6 +25,10 @@ class DrawingApp:
         self.UNIFY_THRESHOLD = 15  # Distancia mínima para unificar puntos
         self.current_y_offset = 0  # Variable para mantener el desplazamiento vertical de las líneas
         self.adding_label_mode = False  # Modo para agregar etiquetas adicionales
+        
+        # Inicializar Claude Analyzer (con manejo de errores)
+        self.claude_analyzer = None
+        self._initialize_claude()
 
         # Binding de eventos
         self.canvas.bind("<Button-1>", self.on_canvas_click)
@@ -69,6 +75,20 @@ class DrawingApp:
         # Botón para agregar la etiqueta adicional
         add_label_button = tk.Button(toolbar, text="Agregar Etiqueta", command=self.enable_add_label_mode)
         add_label_button.pack(side=tk.LEFT)
+        
+        # Separador visual
+        tk.Frame(toolbar, width=20).pack(side=tk.LEFT)
+        
+        # Botón para análisis con IA
+        self.ai_button = tk.Button(
+            toolbar, 
+            text="🤖 Análisis IA", 
+            command=self.analyze_with_ai,
+            bg="#4CAF50",
+            fg="white",
+            font=("Arial", 10, "bold")
+        )
+        self.ai_button.pack(side=tk.LEFT, padx=5)
 
     def toggle_fixed_movement_mode(self):
         self.fixed_movement_mode = not self.fixed_movement_mode
@@ -303,6 +323,154 @@ class DrawingApp:
             print(f"Archivo SVG guardado correctamente en {file_path}")
         except Exception as e:
             print(f"Error al guardar el archivo SVG: {e}")
+    
+    def _initialize_claude(self):
+        """Inicializa el analizador de Claude cargando las variables de entorno."""
+        try:
+            # Cargar variables de entorno desde .env
+            load_env_file('.env')
+            
+            # Intentar inicializar Claude
+            self.claude_analyzer = ClaudeAnalyzer()
+            print("✓ Claude Analyzer inicializado correctamente")
+            
+        except ValueError as e:
+            print(f"⚠️ Claude no disponible: {e}")
+            self.claude_analyzer = None
+        except Exception as e:
+            print(f"❌ Error al inicializar Claude: {e}")
+            self.claude_analyzer = None
+    
+    def analyze_with_ai(self):
+        """Ejecuta el análisis del plano con Claude AI."""
+        # Verificar si hay líneas dibujadas
+        if not self.lines:
+            messagebox.showwarning(
+                "Sin plano",
+                "No hay ningún plano dibujado para analizar.\n\n"
+                "Por favor, dibuja algunas líneas primero."
+            )
+            return
+        
+        # Verificar si Claude está disponible
+        if self.claude_analyzer is None:
+            messagebox.showerror(
+                "Claude no disponible",
+                "El analizador de IA no está configurado.\n\n"
+                "Por favor, verifica que:\n"
+                "1. El archivo .env existe\n"
+                "2. CLAUDE_API_KEY está configurada con tu clave real\n"
+                "3. El paquete 'anthropic' está instalado"
+            )
+            return
+        
+        # Mostrar ventana de "Analizando..."
+        progress_window = tk.Toplevel(self.root)
+        progress_window.title("Analizando...")
+        progress_window.geometry("300x100")
+        progress_window.transient(self.root)
+        progress_window.grab_set()
+        
+        tk.Label(
+            progress_window, 
+            text="🤖 Analizando plano con IA...",
+            font=("Arial", 12)
+        ).pack(pady=20)
+        
+        progress_label = tk.Label(progress_window, text="Por favor espera...")
+        progress_label.pack()
+        
+        # Actualizar la interfaz
+        self.root.update()
+        
+        try:
+            # Realizar análisis
+            analysis = self.claude_analyzer.analyze_floor_plan(self.lines, self.SCALE)
+            
+            # Cerrar ventana de progreso
+            progress_window.destroy()
+            
+            # Mostrar resultados
+            self._show_analysis_results(analysis)
+            
+        except Exception as e:
+            progress_window.destroy()
+            messagebox.showerror(
+                "Error en el análisis",
+                f"Ocurrió un error durante el análisis:\n\n{str(e)}"
+            )
+    
+    def _show_analysis_results(self, analysis: dict):
+        """
+        Muestra los resultados del análisis en una ventana emergente.
+        
+        Args:
+            analysis: Diccionario con los resultados del análisis
+        """
+        # Crear ventana de resultados
+        results_window = tk.Toplevel(self.root)
+        results_window.title("Reporte de Análisis - Claude AI")
+        results_window.geometry("900x700")
+        
+        # Frame principal con scrollbar
+        main_frame = tk.Frame(results_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Área de texto con scroll
+        text_area = scrolledtext.ScrolledText(
+            main_frame,
+            wrap=tk.WORD,
+            font=("Courier New", 10),
+            bg="#f5f5f5"
+        )
+        text_area.pack(fill=tk.BOTH, expand=True)
+        
+        # Formatear y mostrar el reporte
+        report = self.claude_analyzer.format_report(analysis)
+        text_area.insert(tk.END, report)
+        text_area.config(state=tk.DISABLED)  # Solo lectura
+        
+        # Botones de acción
+        button_frame = tk.Frame(results_window)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Botón para copiar al portapapeles
+        def copy_to_clipboard():
+            self.root.clipboard_clear()
+            self.root.clipboard_append(report)
+            messagebox.showinfo("Copiado", "Reporte copiado al portapapeles")
+        
+        # Botón para guardar como archivo
+        def save_report():
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+            )
+            if file_path:
+                try:
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(report)
+                    messagebox.showinfo("Guardado", f"Reporte guardado en:\n{file_path}")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Error al guardar: {e}")
+        
+        tk.Button(
+            button_frame,
+            text="📋 Copiar al Portapapeles",
+            command=copy_to_clipboard
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="💾 Guardar Reporte",
+            command=save_report
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="Cerrar",
+            command=results_window.destroy
+        ).pack(side=tk.RIGHT, padx=5)
 
 if __name__ == "__main__":
     root = tk.Tk()
