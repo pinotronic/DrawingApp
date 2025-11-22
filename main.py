@@ -11,10 +11,6 @@ class DrawingApp:
         self.root = root
         self.root.title("Drawing App - Planos para Avalúos")
 
-        # Configuración del canvas
-        self.canvas = tk.Canvas(root, width=1335, height=660, bg="white")
-        self.canvas.pack()
-
         self.start_point = None
         self.lines = []
         self.labels = []
@@ -37,68 +33,109 @@ class DrawingApp:
         self.claude_analyzer = None
         self._initialize_claude()
 
-        # Binding de eventos
+        # Configurar la UI primero
+        self.setup_ui()
+
+        # Binding de eventos del canvas
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.move_point)
         self.canvas.bind("<ButtonRelease-1>", self.release_point)
         self.canvas.bind("<Button-3>", self.on_label_right_click)
 
-        self.setup_ui()
-
     def setup_ui(self):
-        toolbar = tk.Frame(self.root)
-        toolbar.pack(side=tk.TOP, fill=tk.X)
+        # Barra de herramientas IZQUIERDA
+        toolbar = tk.Frame(self.root, bg="#f0f0f0", width=200)
+        toolbar.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+        
+        # Título de la barra
+        title_label = tk.Label(
+            toolbar,
+            text="🛠️ Herramientas",
+            font=("Arial", 12, "bold"),
+            bg="#f0f0f0"
+        )
+        title_label.pack(pady=10)
+        
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=5)
+
+        # SECCIÓN: DIBUJO
+        tk.Label(
+            toolbar,
+            text="📏 Dibujo",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(10, 5))
 
         # Caja de texto para la longitud de la línea
+        tk.Label(toolbar, text="Longitud (m):", bg="#f0f0f0", font=("Arial", 9)).pack()
         self.length_var = tk.DoubleVar()
-        length_entry = tk.Entry(toolbar, textvariable=self.length_var)
-        length_entry.pack(side=tk.LEFT)
+        length_entry = tk.Entry(toolbar, textvariable=self.length_var, width=15)
+        length_entry.pack(pady=5)
 
         # Botón para dibujar la línea
-        draw_button = tk.Button(toolbar, text="Dibujar Línea", command=self.draw_line)
-        draw_button.pack(side=tk.LEFT)
+        draw_button = tk.Button(
+            toolbar, 
+            text="Dibujar Línea", 
+            command=self.draw_line,
+            width=18
+        )
+        draw_button.pack(pady=2)
 
         # Botón para establecer punto de inicio
-        set_start_button = tk.Button(toolbar, text="Establecer Punto de Inicio", command=self.set_start_point)
-        set_start_button.pack(side=tk.LEFT)
-
-        # Botón para limpiar el canvas
-        clear_button = tk.Button(toolbar, text="Limpiar", command=self.clear_canvas)
-        clear_button.pack(side=tk.LEFT)
-
-        # Botón para exportar a SVG
-        export_button = tk.Button(toolbar, text="Exportar a SVG", command=self.export_to_svg)
-        export_button.pack(side=tk.LEFT)
+        set_start_button = tk.Button(
+            toolbar, 
+            text="Punto de Inicio", 
+            command=self.set_start_point,
+            width=18
+        )
+        set_start_button.pack(pady=2)
 
         # Botón para activar/desactivar modo de movimiento fijo
-        self.fixed_movement_button = tk.Button(toolbar, text="Activar Movimiento Fijo", command=self.toggle_fixed_movement_mode)
-        self.fixed_movement_button.pack(side=tk.LEFT)
+        self.fixed_movement_button = tk.Button(
+            toolbar, 
+            text="Movimiento Fijo", 
+            command=self.toggle_fixed_movement_mode,
+            width=18
+        )
+        self.fixed_movement_button.pack(pady=2)
+
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
+
+        # SECCIÓN: ETIQUETAS
+        tk.Label(
+            toolbar,
+            text="🏷️ Etiquetas",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 5))
 
         # Campo de texto para la etiqueta adicional
+        tk.Label(toolbar, text="Texto:", bg="#f0f0f0", font=("Arial", 9)).pack()
         self.extra_label_var = tk.StringVar()
-        extra_label_entry = tk.Entry(toolbar, textvariable=self.extra_label_var)
-        extra_label_entry.pack(side=tk.LEFT)
+        extra_label_entry = tk.Entry(toolbar, textvariable=self.extra_label_var, width=15)
+        extra_label_entry.pack(pady=5)
 
         # Botón para agregar la etiqueta adicional
-        add_label_button = tk.Button(toolbar, text="Agregar Etiqueta", command=self.enable_add_label_mode)
-        add_label_button.pack(side=tk.LEFT)
-        
-        # Separador visual
-        tk.Frame(toolbar, width=20).pack(side=tk.LEFT)
-        
-        # Botón para análisis con IA
-        self.ai_button = tk.Button(
+        add_label_button = tk.Button(
             toolbar, 
-            text="🤖 Análisis IA", 
-            command=self.analyze_with_ai,
-            bg="#4CAF50",
-            fg="white",
-            font=("Arial", 10, "bold")
+            text="Agregar Etiqueta", 
+            command=self.enable_add_label_mode,
+            width=18
         )
-        self.ai_button.pack(side=tk.LEFT, padx=5)
-        
-        # Separador visual para sección de zonas
-        tk.Frame(toolbar, width=20).pack(side=tk.LEFT)
+        add_label_button.pack(pady=2)
+
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
+
+        # SECCIÓN: ZONAS
+        tk.Label(
+            toolbar,
+            text="🏠 Zonas",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 5))
         
         # Botón para crear zona
         self.create_zone_button = tk.Button(
@@ -107,9 +144,10 @@ class DrawingApp:
             command=self.start_zone_creation,
             bg="#2196F3",
             fg="white",
-            font=("Arial", 10, "bold")
+            font=("Arial", 9, "bold"),
+            width=18
         )
-        self.create_zone_button.pack(side=tk.LEFT, padx=2)
+        self.create_zone_button.pack(pady=2)
         
         # Botón para auto-detectar zonas
         self.auto_detect_button = tk.Button(
@@ -118,9 +156,10 @@ class DrawingApp:
             command=self.auto_detect_zones,
             bg="#9C27B0",
             fg="white",
-            font=("Arial", 10, "bold")
+            font=("Arial", 9, "bold"),
+            width=18
         )
-        self.auto_detect_button.pack(side=tk.LEFT, padx=2)
+        self.auto_detect_button.pack(pady=2)
         
         # Botón para eliminar zona
         self.delete_zone_button = tk.Button(
@@ -129,12 +168,60 @@ class DrawingApp:
             command=self.delete_selected_zone,
             bg="#F44336",
             fg="white",
-            font=("Arial", 10, "bold"),
-            state=tk.DISABLED
+            font=("Arial", 9, "bold"),
+            state=tk.DISABLED,
+            width=18
         )
-        self.delete_zone_button.pack(side=tk.LEFT, padx=2)
+        self.delete_zone_button.pack(pady=2)
+
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
+
+        # SECCIÓN: ANÁLISIS Y EXPORTACIÓN
+        tk.Label(
+            toolbar,
+            text="⚙️ Acciones",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 5))
         
-        # Panel lateral para lista de zonas
+        # Botón para análisis con IA
+        self.ai_button = tk.Button(
+            toolbar, 
+            text="🤖 Análisis IA", 
+            command=self.analyze_with_ai,
+            bg="#4CAF50",
+            fg="white",
+            font=("Arial", 9, "bold"),
+            width=18
+        )
+        self.ai_button.pack(pady=2)
+
+        # Botón para exportar a SVG
+        export_button = tk.Button(
+            toolbar, 
+            text="💾 Exportar SVG", 
+            command=self.export_to_svg,
+            width=18
+        )
+        export_button.pack(pady=2)
+
+        # Botón para limpiar el canvas
+        clear_button = tk.Button(
+            toolbar, 
+            text="🗑️ Limpiar Todo", 
+            command=self.clear_canvas,
+            bg="#FF5722",
+            fg="white",
+            width=18
+        )
+        clear_button.pack(pady=2)
+
+        # Canvas en el centro
+        self.canvas = tk.Canvas(self.root, width=1100, height=700, bg="white")
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Panel lateral derecho para lista de zonas
         self.create_zone_panel()
 
     def toggle_fixed_movement_mode(self):
