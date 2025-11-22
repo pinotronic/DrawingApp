@@ -1,0 +1,17 @@
+{
+  "name": "drawing-app",
+  "version": "1.0.0",
+  "description": "Aplicación de Dibujo Asistido",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^24.8.8"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dxf-writer": "^1.18.4"
+  }
+}

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drawing App</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="toolbar">
+        <input type="text" id="lineLength" placeholder="Longitud de la línea (m)">
+        <button id="drawLineBtn">Dibujar Línea</button>
+        <button id="deleteLineBtn">Eliminar Línea</button>
+        <button id="setStartPointBtn">Establecer Punto de Inicio</button>
+        <select id="layersDropdown">
+            <option value="Layer1">Capa 1</option>
+            <option value="Layer2">Capa 2</option>
+            <!-- Más capas según sea necesario -->
+        </select>
+        <button id="exportSvgBtn">Exportar a SVG</button>
+        <button id="exportDwgBtn">Exportar DWG</button>
+    </div>
+    <canvas id="drawingCanvas"></canvas>
+    <script src="renderer.js"></script>
+</body>
+</html>
