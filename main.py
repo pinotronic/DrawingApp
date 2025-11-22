@@ -32,6 +32,7 @@ class DrawingApp:
         # Variables para orientación y rotación
         self.rotation_angle = 0  # Ángulo de rotación del plano en grados
         self.compass_size = 60  # Tamaño de la rosa de los vientos
+        self._last_slider_value = 0  # Rastrear posición previa del slider
         
         # Inicializar Claude Analyzer (con manejo de errores)
         self.claude_analyzer = None
@@ -189,65 +190,55 @@ class DrawingApp:
             bg="#f0f0f0"
         ).pack(pady=(5, 5))
         
-        # Frame para botones de rotación rápida
-        rotation_buttons_frame = tk.Frame(toolbar, bg="#f0f0f0")
-        rotation_buttons_frame.pack(pady=5)
+        # Instrucción
+        tk.Label(
+            toolbar,
+            text="Desliza para rotar:",
+            bg="#f0f0f0",
+            font=("Arial", 8),
+            fg="#666"
+        ).pack()
         
-        # Botón rotar izquierda 90°
-        tk.Button(
-            rotation_buttons_frame,
-            text="↶ 90°",
-            command=lambda: self.rotate_drawing(-90),
-            width=6,
-            font=("Arial", 9)
-        ).pack(side=tk.LEFT, padx=2)
+        # Frame para el slider
+        slider_frame = tk.Frame(toolbar, bg="#f0f0f0")
+        slider_frame.pack(pady=5, fill=tk.X, padx=10)
         
-        # Botón 180°
-        tk.Button(
-            rotation_buttons_frame,
-            text="↻ 180°",
-            command=lambda: self.rotate_drawing(180),
-            width=6,
-            font=("Arial", 9)
-        ).pack(side=tk.LEFT, padx=2)
+        # Label izquierda
+        tk.Label(
+            slider_frame,
+            text="↶",
+            bg="#f0f0f0",
+            font=("Arial", 14),
+            fg="#2196F3"
+        ).pack(side=tk.LEFT)
         
-        # Botón rotar derecha 90°
-        tk.Button(
-            rotation_buttons_frame,
-            text="↷ 90°",
-            command=lambda: self.rotate_drawing(90),
-            width=6,
-            font=("Arial", 9)
-        ).pack(side=tk.LEFT, padx=2)
-        
-        # Selector de ángulo específico
-        tk.Label(toolbar, text="Ángulo:", bg="#f0f0f0", font=("Arial", 9)).pack()
-        
-        angle_frame = tk.Frame(toolbar, bg="#f0f0f0")
-        angle_frame.pack(pady=5)
-        
-        self.angle_var = tk.StringVar(value="0")
-        angle_options = ["0°", "90°", "180°", "270°"]
-        angle_menu = ttk.Combobox(
-            angle_frame,
-            textvariable=self.angle_var,
-            values=angle_options,
-            width=8,
-            state="readonly"
+        # Slider de rotación (-180 a +180)
+        self.rotation_slider = tk.Scale(
+            slider_frame,
+            from_=-180,
+            to=180,
+            orient=tk.HORIZONTAL,
+            length=120,
+            showvalue=False,
+            bg="#f0f0f0",
+            highlightthickness=0,
+            troughcolor="#ddd",
+            command=self.on_slider_moved
         )
-        angle_menu.pack(side=tk.LEFT, padx=2)
-        angle_menu.bind("<<ComboboxSelected>>", self.on_angle_selected)
+        self.rotation_slider.set(0)  # Iniciar en centro
+        self.rotation_slider.pack(side=tk.LEFT, padx=5)
         
-        # Botón aplicar rotación
-        tk.Button(
-            angle_frame,
-            text="✓",
-            command=self.apply_selected_angle,
-            width=3,
-            font=("Arial", 9, "bold"),
-            bg="#4CAF50",
-            fg="white"
-        ).pack(side=tk.LEFT, padx=2)
+        # Binding para soltar el slider
+        self.rotation_slider.bind("<ButtonRelease-1>", self.on_slider_released)
+        
+        # Label derecha
+        tk.Label(
+            slider_frame,
+            text="↷",
+            bg="#f0f0f0",
+            font=("Arial", 14),
+            fg="#2196F3"
+        ).pack(side=tk.LEFT)
         
         # Label mostrando orientación actual
         self.orientation_label = tk.Label(
@@ -617,33 +608,65 @@ class DrawingApp:
         
         print(f"Plano rotado {angle_increment}°. Orientación actual: {self.rotation_angle}°")
     
-    def on_angle_selected(self, event):
-        """Maneja la selección de ángulo en el combobox."""
-        pass  # Solo actualiza la variable, el usuario debe hacer clic en ✓
-    
-    def apply_selected_angle(self):
-        """Aplica el ángulo seleccionado en el combobox."""
-        selected = self.angle_var.get().replace("°", "")
+    def on_slider_moved(self, value):
+        """Se llama mientras se arrastra el slider."""
+        slider_value = int(float(value))
         
-        try:
-            target_angle = int(selected)
-            
-            # Calcular incremento necesario
-            angle_increment = target_angle - self.rotation_angle
+        # Solo rotar si hay líneas
+        if self.lines:
+            # Calcular incremento desde la última posición
+            angle_increment = slider_value - getattr(self, '_last_slider_value', 0)
             
             if angle_increment != 0:
-                self.rotate_drawing(angle_increment)
-            else:
-                messagebox.showinfo(
-                    "Sin cambios",
-                    f"El plano ya está en {target_angle}°"
-                )
-        except ValueError:
-            messagebox.showerror(
-                "Error",
-                "Ángulo inválido"
-            )
-
+                # Obtener centro del canvas
+                canvas_width = self.canvas.winfo_width()
+                canvas_height = self.canvas.winfo_height()
+                center_x = canvas_width / 2
+                center_y = canvas_height / 2
+                
+                # Convertir ángulo a radianes
+                angle_rad = math.radians(angle_increment)
+                cos_angle = math.cos(angle_rad)
+                sin_angle = math.sin(angle_rad)
+                
+                # Rotar todas las líneas
+                for line in self.lines:
+                    # Rotar punto de inicio
+                    start_x, start_y = line["start"]
+                    rel_x = start_x - center_x
+                    rel_y = start_y - center_y
+                    new_x = rel_x * cos_angle - rel_y * sin_angle + center_x
+                    new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
+                    line["start"] = (new_x, new_y)
+                    
+                    # Rotar punto final
+                    end_x, end_y = line["end"]
+                    rel_x = end_x - center_x
+                    rel_y = end_y - center_y
+                    new_x = rel_x * cos_angle - rel_y * sin_angle + center_x
+                    new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
+                    line["end"] = (new_x, new_y)
+                
+                # Actualizar ángulo de rotación total
+                self.rotation_angle = (self.rotation_angle + angle_increment) % 360
+                
+                # Actualizar label de orientación
+                self.orientation_label.config(text=f"Rotación: {self.rotation_angle}°")
+                
+                # Redibujar
+                self.redraw_canvas()
+            
+            # Guardar valor actual
+            self._last_slider_value = slider_value
+    
+    def on_slider_released(self, event):
+        """Se llama al soltar el slider - vuelve al centro."""
+        # Resetear el slider al centro
+        self.rotation_slider.set(0)
+        self._last_slider_value = 0
+        
+        print(f"Rotación aplicada. Orientación final: {self.rotation_angle}°")
+    
     def enable_add_label_mode(self):
         # Activar el modo de agregar etiqueta
         self.adding_label_mode = True
