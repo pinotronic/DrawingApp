@@ -1,6 +1,6 @@
 # DrawingApp - Aplicación de Planos para Avalúos con IA
 
-Aplicación de dibujo técnico para crear planos de inmuebles destinada a empresas de avalúos. Permite dibujar el contorno de inmuebles con sus áreas de construcción, calcular medidas automáticamente y **analizar planos con Inteligencia Artificial** usando Claude de Anthropic.
+Aplicación de dibujo técnico para crear planos de inmuebles destinada a empresas de avalúos. Permite dibujar el contorno de inmuebles con sus áreas de construcción, calcular medidas automáticamente, **gestionar zonas/habitaciones** y **analizar planos con Inteligencia Artificial** usando Claude de Anthropic.
 
 ## ✨ Características
 
@@ -13,10 +13,23 @@ Aplicación de dibujo técnico para crear planos de inmuebles destinada a empres
 - Exportación a formato SVG
 - Cálculo automático de longitudes
 
+### 🏠 Gestión de Zonas/Habitaciones (NUEVO)
+- **Creación de zonas** seleccionando líneas del plano
+- **Auto-detección** de espacios cerrados
+- **13 tipos de zonas** predefinidas: sala, cocina, recámara, baño, estudio, jardín, garage, pasillo, terraza, bodega, lavandería, comedor y otros
+- **Cálculo automático de áreas** por zona
+- **Visualización con colores** y etiquetas
+- **Panel lateral** con lista de zonas y estadísticas
+- **Iconos distintivos** para cada tipo de espacio
+- **Exportación en SVG** con zonas coloreadas
+
 ### 🤖 Análisis con IA (Claude)
 - **Cálculo automático de áreas** totales y perímetros
+- **Desglose por zonas/habitaciones** con análisis de distribución
 - **Identificación de inconsistencias** en medidas y geometría
 - **Detección de ángulos irregulares** y líneas no paralelas/perpendiculares
+- **Análisis de funcionalidad** de la distribución de espacios
+- **Comparación con estándares de mercado**
 - **Sugerencias inteligentes** para correcciones
 - **Análisis de impacto en avalúo** basado en características del inmueble
 - **Reportes profesionales** listos para documentación
@@ -81,26 +94,42 @@ python main.py
 2. **Establecer Punto de Inicio**: Define el punto inicial del dibujo
 3. **Movimiento Fijo**: Restringe ángulos a múltiplos de 45°
 4. **Agregar Etiquetas**: Añade texto personalizado al plano
-5. **Exportar a SVG**: Guarda el plano en formato vectorial
-6. **🤖 Análisis IA**: Analiza el plano con inteligencia artificial
+5. **➕ Crear Zona**: Selecciona líneas para definir habitaciones/espacios
+6. **🔍 Auto-Detectar**: Identifica automáticamente zonas cerradas
+7. **🗑️ Eliminar Zona**: Borra zonas no deseadas
+8. **Exportar a SVG**: Guarda el plano en formato vectorial con zonas coloreadas
+9. **🤖 Análisis IA**: Analiza el plano con inteligencia artificial
+
+### Flujo de Trabajo Recomendado
+
+1. **Dibuja el contorno** del inmueble con líneas
+2. **Define las zonas** usando "Crear Zona" o "Auto-Detectar"
+3. **Nombra cada espacio** (sala, cocina, recámara, etc.)
+4. **Revisa el resumen** en el panel lateral derecho
+5. **Analiza con IA** para obtener insights profesionales
+6. **Exporta a SVG** con toda la información visual
 
 ### Ejemplo de Análisis con IA
 
 1. Dibuja el contorno de un inmueble con varias líneas
-2. Haz clic en el botón **"🤖 Análisis IA"**
-3. Espera unos segundos mientras Claude analiza
-4. Revisa el reporte completo con:
+2. Crea zonas/habitaciones con sus nombres
+3. Haz clic en el botón **"🤖 Análisis IA"**
+4. Espera unos segundos mientras Claude analiza
+5. Revisa el reporte completo con:
    - Mediciones (área, perímetro)
+   - Desglose por zonas/habitaciones
+   - Análisis de distribución de espacios
    - Análisis geométrico
    - Problemas detectados
    - Recomendaciones profesionales
-5. Copia o guarda el reporte para documentación
+6. Copia o guarda el reporte para documentación
 
 ## 📁 Estructura del Proyecto
 
 ```
 DrawingApp/
-├── main.py                  # Aplicación principal (Tkinter)
+├── main.py                  # Aplicación principal (Tkinter + UI)
+├── zone_manager.py          # Gestor de zonas/habitaciones (NUEVO)
 ├── claude_analyzer.py       # Módulo de análisis con Claude AI
 ├── geometry_utils.py        # Utilidades para cálculos geométricos
 ├── requirements.txt         # Dependencias de Python
@@ -114,6 +143,22 @@ DrawingApp/
 ├── styles.css              # Estilos CSS
 └── assets/                 # Recursos adicionales
 ```
+
+## 🏗️ Arquitectura de Zonas
+
+El sistema de zonas utiliza patrones de diseño robustos:
+
+- **Repository Pattern**: `ZoneManager` gestiona el ciclo de vida de las zonas
+- **Value Object**: `Zone` representa espacios con identidad e integridad
+- **Factory Method**: Creación de zonas con validación automática
+- **Separation of Concerns**: Lógica de negocio separada de UI
+
+### Módulos
+
+- `zone_manager.py`: Gestión CRUD de zonas, auto-detección, estadísticas
+- `geometry_utils.py`: Cálculos de áreas, centroides, validación de cierre
+- `main.py`: Integración UI con selección visual y panel lateral
+- `claude_analyzer.py`: Análisis AI con contexto de distribución espacial
 
 ## 🔒 Seguridad
 

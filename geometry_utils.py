@@ -295,3 +295,130 @@ class GeometryUtils:
     def format_length(length: float) -> str:
         """Formatea la longitud con la unidad apropiada."""
         return f"{length:.2f} m"
+    
+    @staticmethod
+    def calculate_zone_area(zone_lines: List[Dict], scale: float = 50) -> float:
+        """
+        Calcula el área de una zona específica definida por un conjunto de líneas.
+        
+        Args:
+            zone_lines: Lista de líneas que definen la zona
+            scale: Escala de píxeles a metros
+        
+        Returns:
+            Área de la zona en metros cuadrados
+        """
+        if not zone_lines or len(zone_lines) < 3:
+            return 0.0
+        
+        # Convertir coordenadas a metros
+        lines_in_meters = []
+        for line in zone_lines:
+            lines_in_meters.append({
+                'start': (line['start'][0] / scale, line['start'][1] / scale),
+                'end': (line['end'][0] / scale, line['end'][1] / scale),
+                'length': line.get('length', 0)
+            })
+        
+        return GeometryUtils.calculate_polygon_area(lines_in_meters)
+    
+    @staticmethod
+    def get_zone_centroid(zone_lines: List[Dict]) -> Tuple[float, float]:
+        """
+        Calcula el centroide (punto central) de una zona para colocar la etiqueta.
+        
+        Args:
+            zone_lines: Lista de líneas que definen la zona
+        
+        Returns:
+            Tupla (x, y) con las coordenadas del centroide
+        """
+        if not zone_lines:
+            return (0, 0)
+        
+        vertices = GeometryUtils._extract_vertices(zone_lines)
+        
+        if not vertices:
+            return (0, 0)
+        
+        # Calcular centroide simple (promedio de vértices)
+        x_sum = sum(v[0] for v in vertices)
+        y_sum = sum(v[1] for v in vertices)
+        n = len(vertices)
+        
+        return (x_sum / n, y_sum / n)
+    
+    @staticmethod
+    def validate_zone_closure(zone_lines: List[Dict], tolerance: float = 10.0) -> bool:
+        """
+        Valida que las líneas de una zona formen un polígono cerrado.
+        
+        Args:
+            zone_lines: Lista de líneas de la zona
+            tolerance: Tolerancia en píxeles para considerar el polígono cerrado
+        
+        Returns:
+            True si la zona está cerrada correctamente
+        """
+        if len(zone_lines) < 3:
+            return False
+        
+        vertices = GeometryUtils._extract_vertices(zone_lines)
+        
+        if len(vertices) < 3:
+            return False
+        
+        # Verificar si el primer y último vértice están cerca
+        first = vertices[0]
+        last = vertices[-1]
+        distance = math.sqrt((first[0] - last[0])**2 + (first[1] - last[1])**2)
+        
+        return distance <= tolerance
+    
+    @staticmethod
+    def find_connected_lines(all_lines: List[Dict], start_line_index: int, 
+                            tolerance: float = 10.0) -> List[int]:
+        """
+        Encuentra todas las líneas conectadas a partir de una línea inicial.
+        Útil para auto-detectar zonas.
+        
+        Args:
+            all_lines: Lista completa de líneas del plano
+            start_line_index: Índice de la línea inicial
+            tolerance: Distancia máxima para considerar puntos conectados
+        
+        Returns:
+            Lista de índices de líneas conectadas
+        """
+        if start_line_index >= len(all_lines):
+            return []
+        
+        connected = {start_line_index}
+        to_check = [start_line_index]
+        
+        while to_check:
+            current_idx = to_check.pop()
+            current_line = all_lines[current_idx]
+            
+            # Buscar líneas conectadas
+            for i, line in enumerate(all_lines):
+                if i in connected:
+                    continue
+                
+                # Verificar si comparten algún punto
+                if (GeometryUtils._points_near(current_line['start'], line['start'], tolerance) or
+                    GeometryUtils._points_near(current_line['start'], line['end'], tolerance) or
+                    GeometryUtils._points_near(current_line['end'], line['start'], tolerance) or
+                    GeometryUtils._points_near(current_line['end'], line['end'], tolerance)):
+                    
+                    connected.add(i)
+                    to_check.append(i)
+        
+        return list(connected)
+    
+    @staticmethod
+    def _points_near(p1: Tuple[float, float], p2: Tuple[float, float], 
+                     tolerance: float) -> bool:
+        """Verifica si dos puntos están cerca según la tolerancia."""
+        distance = math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+        return distance <= tolerance

@@ -1,9 +1,10 @@
 import tkinter as tk
-from tkinter.simpledialog import askfloat
-from tkinter import scrolledtext, messagebox
+from tkinter.simpledialog import askfloat, askstring
+from tkinter import scrolledtext, messagebox, ttk
 import math
 from tkinter import filedialog
 from claude_analyzer import ClaudeAnalyzer, load_env_file
+from zone_manager import ZoneManager
 
 class DrawingApp:
     def __init__(self, root):
@@ -25,6 +26,12 @@ class DrawingApp:
         self.UNIFY_THRESHOLD = 15  # Distancia mínima para unificar puntos
         self.current_y_offset = 0  # Variable para mantener el desplazamiento vertical de las líneas
         self.adding_label_mode = False  # Modo para agregar etiquetas adicionales
+        
+        # Variables para gestión de zonas
+        self.zone_manager = ZoneManager(scale=self.SCALE)
+        self.zone_selection_mode = False  # Modo para seleccionar líneas para zonas
+        self.selected_lines_for_zone = []  # Líneas seleccionadas para crear una zona
+        self.zone_canvas_items = {}  # Items del canvas asociados a zonas (polígonos y etiquetas)
         
         # Inicializar Claude Analyzer (con manejo de errores)
         self.claude_analyzer = None
@@ -89,6 +96,46 @@ class DrawingApp:
             font=("Arial", 10, "bold")
         )
         self.ai_button.pack(side=tk.LEFT, padx=5)
+        
+        # Separador visual para sección de zonas
+        tk.Frame(toolbar, width=20).pack(side=tk.LEFT)
+        
+        # Botón para crear zona
+        self.create_zone_button = tk.Button(
+            toolbar,
+            text="➕ Crear Zona",
+            command=self.start_zone_creation,
+            bg="#2196F3",
+            fg="white",
+            font=("Arial", 10, "bold")
+        )
+        self.create_zone_button.pack(side=tk.LEFT, padx=2)
+        
+        # Botón para auto-detectar zonas
+        self.auto_detect_button = tk.Button(
+            toolbar,
+            text="🔍 Auto-Detectar",
+            command=self.auto_detect_zones,
+            bg="#9C27B0",
+            fg="white",
+            font=("Arial", 10, "bold")
+        )
+        self.auto_detect_button.pack(side=tk.LEFT, padx=2)
+        
+        # Botón para eliminar zona
+        self.delete_zone_button = tk.Button(
+            toolbar,
+            text="🗑️ Eliminar Zona",
+            command=self.delete_selected_zone,
+            bg="#F44336",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            state=tk.DISABLED
+        )
+        self.delete_zone_button.pack(side=tk.LEFT, padx=2)
+        
+        # Panel lateral para lista de zonas
+        self.create_zone_panel()
 
     def toggle_fixed_movement_mode(self):
         self.fixed_movement_mode = not self.fixed_movement_mode
@@ -127,6 +174,12 @@ class DrawingApp:
             self.start_point = (50, self.current_y_offset + 50)
 
     def on_canvas_click(self, event):
+        # Prioridad 1: Modo de selección de zonas
+        if self.zone_selection_mode:
+            if self.on_canvas_click_zone_mode(event):
+                return
+        
+        # Prioridad 2: Modo de agregar etiquetas
         if self.adding_label_mode:
             self.add_extra_label(event)
         else:
@@ -263,8 +316,22 @@ class DrawingApp:
 
     def redraw_canvas(self):
         self.canvas.delete("all")
-        for line in self.lines:
-            self.canvas.create_line(*line["start"], *line["end"], fill="black", width=2)
+        
+        # Redibujar zonas primero (para que queden detrás)
+        for zone in self.zone_manager.get_all_zones():
+            self.visualize_zone(zone)
+        
+        # Redibujar líneas
+        for i, line in enumerate(self.lines):
+            # Color especial para líneas seleccionadas en modo zona
+            if self.zone_selection_mode and i in self.selected_lines_for_zone:
+                color = "#FF5722"  # Naranja para líneas seleccionadas
+                width = 4
+            else:
+                color = "black"
+                width = 2
+            
+            self.canvas.create_line(*line["start"], *line["end"], fill=color, width=width)
             self.create_label(line["start"], line["end"], line["length"])
             self.draw_anchor_points(line["start"], line["end"])
 
@@ -292,14 +359,50 @@ class DrawingApp:
         if not file_path:
             return
 
-        # Crear el contenido SVG
-        svg_content = '<svg xmlns="http://www.w3.org/2000/svg" version="1.1">\n'
+        # Obtener dimensiones del canvas
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+
+        # Crear el contenido SVG con dimensiones
+        svg_content = f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="{canvas_width}" height="{canvas_height}">\n'
+        
+        # Exportar zonas primero (para que queden detrás de las líneas)
+        for zone in self.zone_manager.get_all_zones():
+            # Obtener puntos del polígono
+            polygon_points = []
+            for line_idx in zone.line_indices:
+                if line_idx < len(self.lines):
+                    line_data = self.lines[line_idx]
+                    if not polygon_points:
+                        polygon_points.append(f"{line_data['start'][0]},{line_data['start'][1]}")
+                    polygon_points.append(f"{line_data['end'][0]},{line_data['end'][1]}")
+            
+            if len(polygon_points) >= 3:
+                points_str = " ".join(polygon_points)
+                # Crear polígono con color semitransparente
+                svg_content += f'  <polygon points="{points_str}" '
+                svg_content += f'fill="{zone.color}" fill-opacity="0.3" '
+                svg_content += f'stroke="{zone.color}" stroke-width="2" />\n'
+                
+                # Agregar etiqueta de la zona
+                centroid = self.zone_manager.get_zone_centroid(zone.id, self.lines)
+                if centroid:
+                    zone_label = self.zone_manager.get_zone_label(zone)
+                    # Separar el label en líneas para SVG
+                    label_lines = zone_label.split('\n')
+                    for i, label_line in enumerate(label_lines):
+                        svg_content += f'  <text x="{centroid[0]}" y="{centroid[1] + i * 15}" '
+                        svg_content += f'font-family="Arial" font-size="11" font-weight="bold" '
+                        svg_content += f'fill="#333" text-anchor="middle">{label_line}</text>\n'
+        
+        # Exportar líneas
         for line in self.lines:
             start_x, start_y = line["start"]
             end_x, end_y = line["end"]
-            svg_content += f'  <line x1="{start_x}" y1="{start_y}" x2="{end_x}" y2="{end_y}" style="stroke:black;stroke-width:2" />\n'
+            svg_content += f'  <line x1="{start_x}" y1="{start_y}" x2="{end_x}" y2="{end_y}" '
+            svg_content += f'style="stroke:black;stroke-width:2" />\n'
 
-        # Agregar etiquetas al SVG
+        # Agregar etiquetas de dimensiones al SVG
         for label, index in self.labels:
             coords = self.canvas.coords(label)
             if coords:  # Asegurarse de que las coordenadas se obtienen correctamente
@@ -318,10 +421,17 @@ class DrawingApp:
 
         # Escribir el contenido SVG en el archivo
         try:
-            with open(file_path, "w") as svg_file:
+            with open(file_path, "w", encoding="utf-8") as svg_file:
                 svg_file.write(svg_content)
+            
+            messagebox.showinfo(
+                "Exportación Exitosa",
+                f"✅ Archivo SVG guardado en:\n{file_path}\n\n"
+                f"Zonas exportadas: {len(self.zone_manager.get_all_zones())}"
+            )
             print(f"Archivo SVG guardado correctamente en {file_path}")
         except Exception as e:
+            messagebox.showerror("Error", f"Error al guardar el archivo SVG:\n{e}")
             print(f"Error al guardar el archivo SVG: {e}")
     
     def _initialize_claude(self):
@@ -384,8 +494,17 @@ class DrawingApp:
         self.root.update()
         
         try:
+            # Obtener zonas en formato para Claude
+            zones_data = None
+            if self.zone_manager.get_all_zones():
+                zones_data = self.zone_manager.export_zones_data()
+            
             # Realizar análisis
-            analysis = self.claude_analyzer.analyze_floor_plan(self.lines, self.SCALE)
+            analysis = self.claude_analyzer.analyze_floor_plan(
+                self.lines, 
+                self.SCALE,
+                zones_data
+            )
             
             # Cerrar ventana de progreso
             progress_window.destroy()
@@ -471,6 +590,419 @@ class DrawingApp:
             text="Cerrar",
             command=results_window.destroy
         ).pack(side=tk.RIGHT, padx=5)
+    
+    # ============================================================================
+    # MÉTODOS PARA GESTIÓN DE ZONAS
+    # ============================================================================
+    
+    def create_zone_panel(self):
+        """Crea el panel lateral para gestionar zonas."""
+        # Frame lateral derecho
+        self.zone_panel = tk.Frame(self.root, width=250, bg="#f0f0f0")
+        self.zone_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
+        
+        # Título del panel
+        title_label = tk.Label(
+            self.zone_panel,
+            text="📐 Zonas/Habitaciones",
+            font=("Arial", 12, "bold"),
+            bg="#f0f0f0"
+        )
+        title_label.pack(pady=10)
+        
+        # Lista de zonas con scrollbar
+        list_frame = tk.Frame(self.zone_panel, bg="#f0f0f0")
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.zone_listbox = tk.Listbox(
+            list_frame,
+            yscrollcommand=scrollbar.set,
+            font=("Arial", 10),
+            selectmode=tk.SINGLE
+        )
+        self.zone_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.zone_listbox.yview)
+        
+        # Binding para selección de zona
+        self.zone_listbox.bind("<<ListboxSelect>>", self.on_zone_select)
+        
+        # Label de resumen
+        self.zone_summary_label = tk.Label(
+            self.zone_panel,
+            text="Total: 0 zonas | 0.00 m²",
+            font=("Arial", 9),
+            bg="#f0f0f0",
+            fg="#666"
+        )
+        self.zone_summary_label.pack(pady=5)
+    
+    def start_zone_creation(self):
+        """Inicia el modo de creación de zona."""
+        if self.zone_selection_mode:
+            # Confirmar y crear zona
+            self.confirm_zone_creation()
+        else:
+            # Iniciar selección
+            self.zone_selection_mode = True
+            self.selected_lines_for_zone = []
+            self.create_zone_button.config(text="✅ Confirmar Zona", bg="#FF9800")
+            messagebox.showinfo(
+                "Crear Zona",
+                "Haz clic en las líneas que forman la zona.\n"
+                "Cuando termines, presiona 'Confirmar Zona'."
+            )
+    
+    def on_canvas_click_zone_mode(self, event):
+        """Maneja clics durante el modo de selección de zonas."""
+        if not self.zone_selection_mode:
+            return False
+        
+        # Buscar línea cercana al clic
+        for i, line_data in enumerate(self.lines):
+            line = line_data["line"]
+            coords = self.canvas.coords(line)
+            
+            if len(coords) >= 4:
+                x1, y1, x2, y2 = coords[:4]
+                
+                # Verificar si el clic está cerca de la línea
+                if self._is_point_near_line(event.x, event.y, x1, y1, x2, y2, tolerance=15):
+                    if i in self.selected_lines_for_zone:
+                        # Deseleccionar
+                        self.selected_lines_for_zone.remove(i)
+                    else:
+                        # Seleccionar
+                        self.selected_lines_for_zone.append(i)
+                    
+                    self.redraw_canvas()
+                    return True
+        
+        return False
+    
+    def _is_point_near_line(self, px, py, x1, y1, x2, y2, tolerance=15):
+        """Verifica si un punto está cerca de una línea."""
+        # Distancia de punto a línea usando fórmula
+        numerator = abs((y2 - y1) * px - (x2 - x1) * py + x2 * y1 - y2 * x1)
+        denominator = math.sqrt((y2 - y1) ** 2 + (x2 - x1) ** 2)
+        
+        if denominator == 0:
+            return False
+        
+        distance = numerator / denominator
+        
+        # Verificar que el punto proyectado está dentro del segmento
+        dot = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / (denominator ** 2)
+        
+        return distance <= tolerance and 0 <= dot <= 1
+    
+    def confirm_zone_creation(self):
+        """Confirma la creación de una zona con las líneas seleccionadas."""
+        if len(self.selected_lines_for_zone) < 3:
+            messagebox.showwarning(
+                "Zona Incompleta",
+                "Debes seleccionar al menos 3 líneas para formar una zona."
+            )
+            return
+        
+        # Diálogo para nombrar la zona
+        zone_dialog = ZoneDialog(self.root, self.zone_manager.ZONE_TYPES)
+        self.root.wait_window(zone_dialog.dialog)
+        
+        if zone_dialog.result:
+            zone_name = zone_dialog.result['name']
+            zone_type = zone_dialog.result['type']
+            
+            # Crear la zona
+            zone = self.zone_manager.create_zone(
+                zone_name,
+                zone_type,
+                self.selected_lines_for_zone.copy(),
+                self.lines
+            )
+            
+            if zone:
+                if zone.is_valid:
+                    messagebox.showinfo(
+                        "Zona Creada",
+                        f"✅ Zona '{zone_name}' creada exitosamente\n"
+                        f"Área: {zone.area:.2f} m²"
+                    )
+                else:
+                    messagebox.showwarning(
+                        "Zona con Advertencia",
+                        f"⚠️ Zona '{zone_name}' creada pero no forma un polígono cerrado.\n"
+                        f"Es posible que el cálculo de área no sea preciso."
+                    )
+                
+                # Visualizar la zona
+                self.visualize_zone(zone)
+                self.update_zone_list()
+            else:
+                messagebox.showerror(
+                    "Error",
+                    "No se pudo crear la zona. Verifica las líneas seleccionadas."
+                )
+        
+        # Salir del modo de selección
+        self.zone_selection_mode = False
+        self.selected_lines_for_zone = []
+        self.create_zone_button.config(text="➕ Crear Zona", bg="#2196F3")
+        self.redraw_canvas()
+    
+    def auto_detect_zones(self):
+        """Detecta automáticamente zonas cerradas en el plano."""
+        if len(self.lines) < 3:
+            messagebox.showwarning(
+                "Plano Incompleto",
+                "Necesitas al menos 3 líneas para detectar zonas."
+            )
+            return
+        
+        detected_zones = self.zone_manager.auto_detect_zones(self.lines)
+        
+        if detected_zones:
+            messagebox.showinfo(
+                "Zonas Detectadas",
+                f"✅ Se detectaron {len(detected_zones)} zona(s) automáticamente."
+            )
+            
+            # Visualizar todas las zonas detectadas
+            for zone in detected_zones:
+                self.visualize_zone(zone)
+            
+            self.update_zone_list()
+        else:
+            messagebox.showinfo(
+                "Sin Zonas",
+                "No se detectaron zonas cerradas automáticamente.\n"
+                "Puedes crear zonas manualmente con 'Crear Zona'."
+            )
+    
+    def visualize_zone(self, zone):
+        """Visualiza una zona en el canvas."""
+        # Obtener las coordenadas del polígono
+        polygon_points = []
+        for line_idx in zone.line_indices:
+            if line_idx < len(self.lines):
+                line_data = self.lines[line_idx]
+                if not polygon_points:
+                    polygon_points.extend(line_data["start"])
+                polygon_points.extend(line_data["end"])
+        
+        if len(polygon_points) >= 6:  # Al menos 3 puntos (6 coordenadas)
+            # Crear polígono con relleno semitransparente
+            polygon = self.canvas.create_polygon(
+                polygon_points,
+                fill=zone.color,
+                stipple="gray50",  # Patrón semitransparente
+                outline=zone.color,
+                width=2,
+                tags=f"zone_{zone.id}"
+            )
+            
+            # Bajar el polígono para que no tape las líneas
+            self.canvas.tag_lower(polygon)
+            
+            # Obtener centroide para la etiqueta
+            centroid = self.zone_manager.get_zone_centroid(zone.id, self.lines)
+            
+            if centroid:
+                label_text = self.zone_manager.get_zone_label(zone)
+                label = self.canvas.create_text(
+                    centroid[0],
+                    centroid[1],
+                    text=label_text,
+                    font=("Arial", 11, "bold"),
+                    fill="#333",
+                    tags=f"zone_{zone.id}"
+                )
+                
+                # Guardar referencias
+                self.zone_canvas_items[zone.id] = {
+                    'polygon': polygon,
+                    'label': label
+                }
+    
+    def update_zone_list(self):
+        """Actualiza la lista de zonas en el panel lateral."""
+        self.zone_listbox.delete(0, tk.END)
+        
+        zones = self.zone_manager.get_all_zones()
+        total_area = 0.0
+        
+        for zone in zones:
+            status_icon = "✅" if zone.is_valid else "⚠️"
+            type_icon = self.zone_manager.ZONE_TYPES.get(zone.zone_type, {}).get('icon', '📐')
+            display_text = f"{status_icon} {type_icon} {zone.name} - {zone.area:.2f} m²"
+            
+            self.zone_listbox.insert(tk.END, display_text)
+            total_area += zone.area
+        
+        # Actualizar resumen
+        self.zone_summary_label.config(
+            text=f"Total: {len(zones)} zonas | {total_area:.2f} m²"
+        )
+    
+    def on_zone_select(self, event):
+        """Maneja la selección de una zona en la lista."""
+        selection = self.zone_listbox.curselection()
+        
+        if selection:
+            self.delete_zone_button.config(state=tk.NORMAL)
+        else:
+            self.delete_zone_button.config(state=tk.DISABLED)
+    
+    def delete_selected_zone(self):
+        """Elimina la zona seleccionada."""
+        selection = self.zone_listbox.curselection()
+        
+        if not selection:
+            return
+        
+        zone_index = selection[0]
+        zones = self.zone_manager.get_all_zones()
+        
+        if zone_index < len(zones):
+            zone = zones[zone_index]
+            
+            # Confirmar eliminación
+            confirm = messagebox.askyesno(
+                "Confirmar Eliminación",
+                f"¿Eliminar la zona '{zone.name}'?"
+            )
+            
+            if confirm:
+                # Eliminar del canvas
+                if zone.id in self.zone_canvas_items:
+                    items = self.zone_canvas_items[zone.id]
+                    self.canvas.delete(items['polygon'])
+                    self.canvas.delete(items['label'])
+                    del self.zone_canvas_items[zone.id]
+                
+                # Eliminar del gestor
+                self.zone_manager.delete_zone(zone.id)
+                
+                # Actualizar lista
+                self.update_zone_list()
+                self.delete_zone_button.config(state=tk.DISABLED)
+
+
+class ZoneDialog:
+    """Diálogo para crear/editar zonas."""
+    
+    def __init__(self, parent, zone_types):
+        self.result = None
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Crear Zona")
+        self.dialog.geometry("400x300")
+        self.dialog.resizable(False, False)
+        
+        # Centrar diálogo
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Nombre de la zona
+        tk.Label(
+            self.dialog,
+            text="Nombre de la zona:",
+            font=("Arial", 10, "bold")
+        ).pack(pady=(20, 5))
+        
+        self.name_entry = tk.Entry(self.dialog, font=("Arial", 11), width=30)
+        self.name_entry.pack(pady=5)
+        self.name_entry.focus()
+        
+        # Tipo de zona
+        tk.Label(
+            self.dialog,
+            text="Tipo de zona:",
+            font=("Arial", 10, "bold")
+        ).pack(pady=(15, 5))
+        
+        # Frame para tipos de zona con scroll
+        types_frame = tk.Frame(self.dialog)
+        types_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+        
+        # Canvas con scrollbar para tipos
+        canvas = tk.Canvas(types_frame, height=120)
+        scrollbar = tk.Scrollbar(types_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Variable para tipo seleccionado
+        self.zone_type_var = tk.StringVar(value="sala")
+        
+        # Botones de radio para cada tipo
+        for zone_type, info in zone_types.items():
+            icon = info.get('icon', '📐')
+            text = f"{icon} {zone_type.capitalize()}"
+            
+            tk.Radiobutton(
+                scrollable_frame,
+                text=text,
+                variable=self.zone_type_var,
+                value=zone_type,
+                font=("Arial", 10)
+            ).pack(anchor="w", padx=10, pady=2)
+        
+        # Botones
+        button_frame = tk.Frame(self.dialog)
+        button_frame.pack(pady=15)
+        
+        tk.Button(
+            button_frame,
+            text="✅ Crear",
+            command=self.on_ok,
+            bg="#4CAF50",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(
+            button_frame,
+            text="❌ Cancelar",
+            command=self.on_cancel,
+            font=("Arial", 10),
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Binding para Enter
+        self.dialog.bind("<Return>", lambda e: self.on_ok())
+    
+    def on_ok(self):
+        name = self.name_entry.get().strip()
+        
+        if not name:
+            messagebox.showwarning(
+                "Nombre Requerido",
+                "Debes ingresar un nombre para la zona."
+            )
+            return
+        
+        self.result = {
+            'name': name,
+            'type': self.zone_type_var.get()
+        }
+        self.dialog.destroy()
+    
+    def on_cancel(self):
+        self.result = None
+        self.dialog.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()
