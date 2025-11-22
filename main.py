@@ -422,6 +422,32 @@ class DrawingApp:
     def release_point(self, event):
         self.dragging = False
         self.selected_point = None
+    
+    def _get_drawing_center(self):
+        """Calcula el centro del bounding box del dibujo."""
+        if not self.lines:
+            # Si no hay líneas, retornar centro del canvas
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+            return (canvas_width / 2, canvas_height / 2)
+        
+        # Calcular bounding box
+        min_x = float('inf')
+        min_y = float('inf')
+        max_x = float('-inf')
+        max_y = float('-inf')
+        
+        for line in self.lines:
+            start_x, start_y = line["start"]
+            end_x, end_y = line["end"]
+            
+            min_x = min(min_x, start_x, end_x)
+            min_y = min(min_y, start_y, end_y)
+            max_x = max(max_x, start_x, end_x)
+            max_y = max(max_y, start_y, end_y)
+        
+        # Retornar centro
+        return ((min_x + max_x) / 2, (min_y + max_y) / 2)
 
     def create_label(self, start, end, length):
         """Crea acotación profesional con líneas de extensión y cota."""
@@ -433,10 +459,31 @@ class DrawingApp:
         # Calcular el ángulo perpendicular (90° a la línea)
         perp_angle = line_angle + math.pi / 2
         
-        # Determinar el lado de la acotación (arriba/abajo o izq/der)
-        # Usar un offset adaptativo para que siempre quede visible
+        # ESTRATEGIA INTELIGENTE: Colocar etiquetas según posición respecto al centro del dibujo
+        # Calcular centro del dibujo
+        drawing_center = self._get_drawing_center()
+        
+        # Punto medio de la línea actual
+        line_mid_x = (start[0] + end[0]) / 2
+        line_mid_y = (start[1] + end[1]) / 2
+        
+        # Vector desde el centro del dibujo al punto medio de la línea
+        to_line_x = line_mid_x - drawing_center[0]
+        to_line_y = line_mid_y - drawing_center[1]
+        
+        # Calcular offset perpendicular inicial
         offset_x = math.cos(perp_angle) * self.DIMENSION_OFFSET
         offset_y = math.sin(perp_angle) * self.DIMENSION_OFFSET
+        
+        # Producto punto: determina si el offset apunta hacia afuera o adentro
+        # Si el producto punto es negativo, el offset apunta hacia el centro (mal)
+        dot_product = offset_x * to_line_x + offset_y * to_line_y
+        
+        # Si apunta hacia el centro, invertir el offset para que apunte hacia afuera
+        if dot_product < 0:
+            offset_x = -offset_x
+            offset_y = -offset_y
+            perp_angle += math.pi
         
         # Punto medio de la línea principal
         mid_x = (start[0] + end[0]) / 2
