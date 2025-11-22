@@ -33,7 +33,7 @@ class ClaudeAnalyzer:
             )
         
         self.client = Anthropic(api_key=self.api_key)
-        self.model = "claude-3-5-sonnet-20241022"
+        self.model = "claude-3-5-sonnet-20240620"
         self.geo_utils = GeometryUtils()
     
     def analyze_floor_plan(self, lines: List[Dict], scale: float = 50, zones: List[Dict] = None) -> Dict:
