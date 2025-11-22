@@ -934,14 +934,24 @@ class DrawingApp:
             end_x, end_y = line["end"]
             line["end"] = (end_x + offset_x, end_y + offset_y)
         
+        # Aplicar desplazamiento a todas las etiquetas de texto
+        for label_data in self.text_labels:
+            label_data['x'] += offset_x
+            label_data['y'] += offset_y
+        
         # Redibujar
         self.redraw_canvas()
         
         print(f"Dibujo centrado. Desplazamiento: ({offset_x:.1f}, {offset_y:.1f})")
+        
+        # Contar elementos centrados
+        total_elements = len(self.lines) + len(self.text_labels)
+        
         messagebox.showinfo(
             "Dibujo Centrado",
             f"✅ El dibujo se ha centrado en el canvas.\n\n"
             f"Dimensiones: {max_x - min_x:.1f} × {max_y - min_y:.1f} px\n"
+            f"Elementos centrados: {len(self.lines)} líneas, {len(self.text_labels)} etiquetas\n"
             f"Ahora puedes rotar con mejores resultados."
         )
     
