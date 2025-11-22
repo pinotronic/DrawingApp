@@ -59,9 +59,34 @@ class DrawingApp:
         self.canvas.bind("<Double-Button-1>", self.on_text_label_double_click)
 
     def setup_ui(self):
-        # Barra de herramientas IZQUIERDA
-        toolbar = tk.Frame(self.root, bg="#f0f0f0", width=200)
-        toolbar.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+        # Barra de herramientas IZQUIERDA con scroll
+        toolbar_container = tk.Frame(self.root, bg="#f0f0f0", width=200)
+        toolbar_container.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+        
+        # Canvas para el scroll
+        toolbar_canvas = tk.Canvas(toolbar_container, bg="#f0f0f0", width=200, highlightthickness=0)
+        scrollbar = tk.Scrollbar(toolbar_container, orient="vertical", command=toolbar_canvas.yview)
+        
+        # Frame scrollable
+        toolbar = tk.Frame(toolbar_canvas, bg="#f0f0f0")
+        
+        # Configurar scroll
+        toolbar.bind(
+            "<Configure>",
+            lambda e: toolbar_canvas.configure(scrollregion=toolbar_canvas.bbox("all"))
+        )
+        
+        toolbar_canvas.create_window((0, 0), window=toolbar, anchor="nw")
+        toolbar_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack del canvas y scrollbar
+        toolbar_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Bind para scroll con mouse wheel
+        def _on_mousewheel(event):
+            toolbar_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        toolbar_canvas.bind_all("<MouseWheel>", _on_mousewheel)
         
         # Título de la barra
         title_label = tk.Label(
@@ -141,6 +166,20 @@ class DrawingApp:
             width=18
         )
         add_label_button.pack(pady=2)
+        
+        # Nota informativa sobre rotación
+        info_label = tk.Label(
+            toolbar,
+            text="💡 Clic derecho en etiqueta\npara rotarla",
+            bg="#E3F2FD",
+            fg="#1976D2",
+            font=("Arial", 8),
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=5,
+            pady=3
+        )
+        info_label.pack(pady=5, padx=5, fill=tk.X)
 
         # Separador
         tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
@@ -712,7 +751,7 @@ class DrawingApp:
                 bg_rect = self.canvas.create_rectangle(
                     x1 - padding, y1 - padding,
                     x2 + padding, y2 + padding,
-                    fill="yellow", outline="#FF9800", width=2,
+                    fill="white", outline="#FF9800", width=2,
                     tags="text_label"
                 )
                 
@@ -723,7 +762,7 @@ class DrawingApp:
                 bg_rect = self.canvas.create_rectangle(
                     label_data['x'] - 60, label_data['y'] - 15,
                     label_data['x'] + 60, label_data['y'] + 15,
-                    fill="yellow", outline="#FF9800", width=2,
+                    fill="white", outline="#FF9800", width=2,
                     tags="text_label"
                 )
                 self.canvas.tag_raise(text_id)
@@ -1005,7 +1044,7 @@ class DrawingApp:
         bg_rect = self.canvas.create_rectangle(
             center_x - 60, center_y - 15,
             center_x + 60, center_y + 15,
-            fill="yellow", outline="#FF9800", width=2,
+            fill="white", outline="#FF9800", width=2,
             tags="text_label"
         )
         
@@ -1302,7 +1341,7 @@ class DrawingApp:
             
             # Rectángulo de fondo
             svg_content += f'    <rect x="{x - 60}" y="{y - 15}" width="120" height="30" '
-            svg_content += f'fill="yellow" stroke="#FF9800" stroke-width="2" />\n'
+            svg_content += f'fill="white" stroke="#FF9800" stroke-width="2" />\n'
             
             # Texto
             svg_content += f'    <text x="{x}" y="{y}" font-family="Arial" font-size="14" '
