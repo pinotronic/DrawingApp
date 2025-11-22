@@ -648,11 +648,15 @@ class DrawingApp:
             # Iniciar selección
             self.zone_selection_mode = True
             self.selected_lines_for_zone = []
-            self.create_zone_button.config(text="✅ Confirmar Zona", bg="#FF9800")
+            self.create_zone_button.config(text="✅ Confirmar (0 líneas)", bg="#FF9800")
             messagebox.showinfo(
                 "Crear Zona",
-                "Haz clic en las líneas que forman la zona.\n"
-                "Cuando termines, presiona 'Confirmar Zona'."
+                "Modo de selección activado:\n\n"
+                "• Haz clic CERCA de las líneas para seleccionarlas\n"
+                "• Las líneas seleccionadas se mostrarán en NARANJA\n"
+                "• Necesitas mínimo 3 líneas\n"
+                "• Clic en una línea naranja para deseleccionarla\n\n"
+                "Cuando termines, presiona el botón de confirmar."
             )
     
     def on_canvas_click_zone_mode(self, event):
@@ -660,43 +664,64 @@ class DrawingApp:
         if not self.zone_selection_mode:
             return False
         
-        # Buscar línea cercana al clic
+        # Buscar línea cercana al clic (búsqueda mejorada)
+        closest_line = None
+        min_distance = float('inf')
+        tolerance = 20  # Aumentado para facilitar selección
+        
         for i, line_data in enumerate(self.lines):
-            line = line_data["line"]
-            coords = self.canvas.coords(line)
+            # Usar las coordenadas directamente del dict line_data
+            x1, y1 = line_data["start"]
+            x2, y2 = line_data["end"]
             
-            if len(coords) >= 4:
-                x1, y1, x2, y2 = coords[:4]
-                
-                # Verificar si el clic está cerca de la línea
-                if self._is_point_near_line(event.x, event.y, x1, y1, x2, y2, tolerance=15):
-                    if i in self.selected_lines_for_zone:
-                        # Deseleccionar
-                        self.selected_lines_for_zone.remove(i)
-                    else:
-                        # Seleccionar
-                        self.selected_lines_for_zone.append(i)
-                    
-                    self.redraw_canvas()
-                    return True
+            # Calcular distancia del punto a la línea
+            distance = self._distance_point_to_line(event.x, event.y, x1, y1, x2, y2)
+            
+            if distance < min_distance and distance <= tolerance:
+                min_distance = distance
+                closest_line = i
+        
+        # Si encontramos una línea cercana, seleccionarla/deseleccionarla
+        if closest_line is not None:
+            if closest_line in self.selected_lines_for_zone:
+                # Deseleccionar
+                self.selected_lines_for_zone.remove(closest_line)
+                print(f"Línea {closest_line} deseleccionada. Total: {len(self.selected_lines_for_zone)}")
+            else:
+                # Seleccionar
+                self.selected_lines_for_zone.append(closest_line)
+                print(f"Línea {closest_line} seleccionada. Total: {len(self.selected_lines_for_zone)}")
+            
+            # Actualizar texto del botón con contador
+            self.create_zone_button.config(
+                text=f"✅ Confirmar ({len(self.selected_lines_for_zone)} líneas)"
+            )
+            
+            self.redraw_canvas()
+            return True
         
         return False
     
-    def _is_point_near_line(self, px, py, x1, y1, x2, y2, tolerance=15):
-        """Verifica si un punto está cerca de una línea."""
-        # Distancia de punto a línea usando fórmula
-        numerator = abs((y2 - y1) * px - (x2 - x1) * py + x2 * y1 - y2 * x1)
-        denominator = math.sqrt((y2 - y1) ** 2 + (x2 - x1) ** 2)
+    def _distance_point_to_line(self, px, py, x1, y1, x2, y2):
+        """Calcula la distancia mínima de un punto a un segmento de línea."""
+        # Longitud del segmento al cuadrado
+        line_length_sq = (x2 - x1) ** 2 + (y2 - y1) ** 2
         
-        if denominator == 0:
-            return False
+        if line_length_sq == 0:
+            # La línea es un punto
+            return math.sqrt((px - x1) ** 2 + (py - y1) ** 2)
         
-        distance = numerator / denominator
+        # Parámetro t del punto más cercano en la línea
+        t = max(0, min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / line_length_sq))
         
-        # Verificar que el punto proyectado está dentro del segmento
-        dot = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / (denominator ** 2)
+        # Punto más cercano en el segmento
+        closest_x = x1 + t * (x2 - x1)
+        closest_y = y1 + t * (y2 - y1)
         
-        return distance <= tolerance and 0 <= dot <= 1
+        # Distancia del punto al punto más cercano
+        distance = math.sqrt((px - closest_x) ** 2 + (py - closest_y) ** 2)
+        
+        return distance
     
     def confirm_zone_creation(self):
         """Confirma la creación de una zona con las líneas seleccionadas."""
