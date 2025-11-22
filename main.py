@@ -744,39 +744,24 @@ class DrawingApp:
             # Obtener bounding box del texto rotado
             bbox = self.canvas.bbox(text_id)
             if bbox:
-                x1, y1, x2, y2 = bbox
-                padding = 5
+                # No crear rectángulo de fondo - etiqueta transparente
+                bg_rect = None
                 
-                # Crear fondo alrededor del texto
-                bg_rect = self.canvas.create_rectangle(
-                    x1 - padding, y1 - padding,
-                    x2 + padding, y2 + padding,
-                    fill="white", outline="#FF9800", width=2,
-                    tags="text_label"
-                )
-                
-                # Subir el texto para que quede encima del fondo
+                # Subir el texto para que quede encima
                 self.canvas.tag_raise(text_id)
             else:
-                # Fallback si no se puede obtener bbox
-                bg_rect = self.canvas.create_rectangle(
-                    label_data['x'] - 60, label_data['y'] - 15,
-                    label_data['x'] + 60, label_data['y'] + 15,
-                    fill="white", outline="#FF9800", width=2,
-                    tags="text_label"
-                )
+                # Fallback - sin fondo
+                bg_rect = None
                 self.canvas.tag_raise(text_id)
             
             # Actualizar referencias
             label_data['text_id'] = text_id
             label_data['bg_id'] = bg_rect
             
-            # Bindings para arrastrar
-            self.canvas.tag_bind(bg_rect, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
+            # Bindings para arrastrar (solo en texto ya que no hay fondo)
             self.canvas.tag_bind(text_id, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
             
             # Bindings para rotación (clic derecho)
-            self.canvas.tag_bind(bg_rect, "<Button-3>", lambda e, idx=i: self.show_rotation_control(idx))
             self.canvas.tag_bind(text_id, "<Button-3>", lambda e, idx=i: self.show_rotation_control(idx))
             self.canvas.tag_bind(text_id, "<Button-1>", lambda e, idx=i: self.start_drag_text_label(e, idx))
         
@@ -1040,15 +1025,7 @@ class DrawingApp:
         center_x = canvas_width / 2
         center_y = canvas_height / 2
         
-        # Crear fondo para mejor visibilidad
-        bg_rect = self.canvas.create_rectangle(
-            center_x - 60, center_y - 15,
-            center_x + 60, center_y + 15,
-            fill="white", outline="#FF9800", width=2,
-            tags="text_label"
-        )
-        
-        # Crear la etiqueta en el centro
+        # Crear la etiqueta en el centro (sin fondo)
         label_id = self.canvas.create_text(
             center_x, center_y,
             text=text,
@@ -1057,22 +1034,20 @@ class DrawingApp:
             tags="text_label"
         )
         
-        # Guardar referencia
+        # Guardar referencia (sin bg_rect)
         self.text_labels.append({
             'text_id': label_id,
-            'bg_id': bg_rect,
+            'bg_id': None,
             'text': text,
             'x': center_x,
             'y': center_y,
             'angle': 0  # Ángulo de rotación en grados
         })
         
-        # Hacer que el rectángulo sea clickeable para mover y seleccionar
-        self.canvas.tag_bind(bg_rect, "<Button-1>", lambda e: self.start_drag_text_label(e, len(self.text_labels) - 1))
+        # Hacer que el texto sea clickeable para mover y seleccionar
         self.canvas.tag_bind(label_id, "<Button-1>", lambda e: self.start_drag_text_label(e, len(self.text_labels) - 1))
         
         # Binding para clic derecho - mostrar control de rotación
-        self.canvas.tag_bind(bg_rect, "<Button-3>", lambda e: self.show_rotation_control(len(self.text_labels) - 1))
         self.canvas.tag_bind(label_id, "<Button-3>", lambda e: self.show_rotation_control(len(self.text_labels) - 1))
         
         # Limpiar campo de texto
@@ -1115,9 +1090,8 @@ class DrawingApp:
                 dx = event.x - self.drag_start_x
                 dy = event.y - self.drag_start_y
                 
-                # Mover ambos elementos
+                # Mover solo el texto (no hay fondo)
                 self.canvas.move(label_data['text_id'], dx, dy)
-                self.canvas.move(label_data['bg_id'], dx, dy)
                 
                 # Actualizar posición guardada
                 label_data['x'] += dx
@@ -1336,19 +1310,11 @@ class DrawingApp:
             text = label_data['text']
             angle = label_data.get('angle', 0)
             
-            # Grupo con transformación para rotación
-            svg_content += f'  <g transform="rotate({angle}, {x}, {y})">\n'
-            
-            # Rectángulo de fondo
-            svg_content += f'    <rect x="{x - 60}" y="{y - 15}" width="120" height="30" '
-            svg_content += f'fill="white" stroke="#FF9800" stroke-width="2" />\n'
-            
-            # Texto
-            svg_content += f'    <text x="{x}" y="{y}" font-family="Arial" font-size="14" '
+            # Texto sin fondo
+            svg_content += f'  <text x="{x}" y="{y}" font-family="Arial" font-size="14" '
             svg_content += f'font-weight="bold" fill="#333" text-anchor="middle" '
-            svg_content += f'alignment-baseline="middle">{text}</text>\n'
-            
-            svg_content += f'  </g>\n'
+            svg_content += f'alignment-baseline="middle" '
+            svg_content += f'transform="rotate({angle}, {x}, {y})">{text}</text>\n'
 
         # Exportar rosa de los vientos
         cx = canvas_width - self.compass_size - 20
