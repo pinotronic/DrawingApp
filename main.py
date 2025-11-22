@@ -249,6 +249,17 @@ class DrawingApp:
             fg="#666"
         )
         self.orientation_label.pack(pady=2)
+        
+        # Botón para centrar el dibujo
+        tk.Button(
+            toolbar,
+            text="🎯 Centrar Dibujo",
+            command=self.center_drawing,
+            bg="#9C27B0",
+            fg="white",
+            font=("Arial", 9, "bold"),
+            width=18
+        ).pack(pady=5)
 
         # Separador
         tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
@@ -666,6 +677,69 @@ class DrawingApp:
         self._last_slider_value = 0
         
         print(f"Rotación aplicada. Orientación final: {self.rotation_angle}°")
+    
+    def center_drawing(self):
+        """Centra todo el dibujo en el canvas."""
+        if not self.lines:
+            messagebox.showinfo(
+                "Sin dibujo",
+                "No hay ningún dibujo para centrar."
+            )
+            return
+        
+        # Calcular el bounding box de todas las líneas
+        min_x = float('inf')
+        min_y = float('inf')
+        max_x = float('-inf')
+        max_y = float('-inf')
+        
+        for line in self.lines:
+            # Verificar punto de inicio
+            start_x, start_y = line["start"]
+            min_x = min(min_x, start_x)
+            min_y = min(min_y, start_y)
+            max_x = max(max_x, start_x)
+            max_y = max(max_y, start_y)
+            
+            # Verificar punto final
+            end_x, end_y = line["end"]
+            min_x = min(min_x, end_x)
+            min_y = min(min_y, end_y)
+            max_x = max(max_x, end_x)
+            max_y = max(max_y, end_y)
+        
+        # Calcular centro del dibujo actual
+        drawing_center_x = (min_x + max_x) / 2
+        drawing_center_y = (min_y + max_y) / 2
+        
+        # Calcular centro del canvas
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        canvas_center_x = canvas_width / 2
+        canvas_center_y = canvas_height / 2
+        
+        # Calcular desplazamiento necesario
+        offset_x = canvas_center_x - drawing_center_x
+        offset_y = canvas_center_y - drawing_center_y
+        
+        # Aplicar desplazamiento a todas las líneas
+        for line in self.lines:
+            start_x, start_y = line["start"]
+            line["start"] = (start_x + offset_x, start_y + offset_y)
+            
+            end_x, end_y = line["end"]
+            line["end"] = (end_x + offset_x, end_y + offset_y)
+        
+        # Redibujar
+        self.redraw_canvas()
+        
+        print(f"Dibujo centrado. Desplazamiento: ({offset_x:.1f}, {offset_y:.1f})")
+        messagebox.showinfo(
+            "Dibujo Centrado",
+            f"✅ El dibujo se ha centrado en el canvas.\n\n"
+            f"Dimensiones: {max_x - min_x:.1f} × {max_y - min_y:.1f} px\n"
+            f"Ahora puedes rotar con mejores resultados."
+        )
     
     def enable_add_label_mode(self):
         # Activar el modo de agregar etiqueta
