@@ -26,6 +26,7 @@ class DrawingApp:
         self.dragging_text_label = None  # Etiqueta de texto siendo arrastrada
         self.selected_text_label = None  # Etiqueta de texto seleccionada para rotación
         self.rotation_control_window = None  # Ventana de control de rotación
+        self.selected_line_for_dimension = None  # Línea seleccionada para ocultar/mostrar cota
         
         # Constantes para acotación profesional
         self.DIMENSION_OFFSET = 30  # Separación de la línea de cota respecto a la línea principal
@@ -155,6 +156,30 @@ class DrawingApp:
             width=18
         )
         self.fixed_movement_button.pack(pady=2)
+        
+        # Botón para ocultar/mostrar cota
+        self.toggle_dimension_button = tk.Button(
+            toolbar,
+            text="👁️ Ocultar Cota",
+            command=self.toggle_dimension_visibility,
+            width=18,
+            state=tk.DISABLED
+        )
+        self.toggle_dimension_button.pack(pady=2)
+        
+        # Info sobre ocultar cotas
+        info_dimension = tk.Label(
+            toolbar,
+            text="💡 Haz clic en una línea\npara seleccionarla",
+            bg="#E8F5E9",
+            fg="#2E7D32",
+            font=("Arial", 7),
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=5,
+            pady=3
+        )
+        info_dimension.pack(pady=5, padx=5, fill=tk.X)
 
         # Separador
         tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
@@ -452,6 +477,30 @@ class DrawingApp:
         else:
             self.fixed_movement_button.config(bg="SystemButtonFace", text="Activar Movimiento Fijo")
             print("Modo de movimiento fijo desactivado.")
+    
+    def toggle_dimension_visibility(self):
+        """Alterna la visibilidad de la cota de la línea seleccionada."""
+        if self.selected_line_for_dimension is not None and self.selected_line_for_dimension < len(self.lines):
+            line = self.lines[self.selected_line_for_dimension]
+            # Alternar visibilidad
+            current_visibility = line.get("dimension_visible", True)
+            line["dimension_visible"] = not current_visibility
+            
+            # Actualizar texto del botón
+            if line["dimension_visible"]:
+                self.toggle_dimension_button.config(text="👁️‍🗨️ Ocultar Cota")
+                print(f"Cota de línea {self.selected_line_for_dimension} mostrada")
+            else:
+                self.toggle_dimension_button.config(text="👁️ Mostrar Cota")
+                print(f"Cota de línea {self.selected_line_for_dimension} ocultada")
+            
+            # Redibujar canvas
+            self.redraw_canvas()
+        else:
+            messagebox.showwarning(
+                "Ninguna Línea Seleccionada",
+                "Por favor, haz clic en una línea primero para seleccionarla."
+            )
 
     def set_start_point(self):
         self.start_point = None
@@ -471,7 +520,8 @@ class DrawingApp:
                 "start": self.start_point,
                 "end": end_point,
                 "line": line,
-                "length": length
+                "length": length,
+                "dimension_visible": True  # Cota visible por defecto
             })
             # Pasar el índice de la línea recién agregada
             self.create_label(self.start_point, end_point, length, len(self.lines) - 1)
@@ -502,13 +552,34 @@ class DrawingApp:
             radius = int(5 * self.zoom_level)
             self.canvas.create_oval(canvas_x-radius, canvas_y-radius, canvas_x+radius, canvas_y+radius, fill="red")
         else:
-            for line in self.lines:
-                if self.is_within_point(world_x, world_y, *line["start"]):
-                    self.selected_point = ("start", line)
-                    self.dragging = True
-                elif self.is_within_point(world_x, world_y, *line["end"]):
-                    self.selected_point = ("end", line)
-                    self.dragging = True
+            # Primero verificar si el clic está cerca de alguna línea (para seleccionar)
+            line_selected = False
+            for i, line in enumerate(self.lines):
+                # Verificar si el clic está cerca de la línea
+                distance = self._distance_point_to_line(world_x, world_y, *line["start"], *line["end"])
+                if distance <= 10:  # Tolerancia de 10 píxeles
+                    self.selected_line_for_dimension = i
+                    self.toggle_dimension_button.config(state=tk.NORMAL)
+                    # Actualizar texto del botón según el estado
+                    if line.get("dimension_visible", True):
+                        self.toggle_dimension_button.config(text="👁️‍🗨️ Ocultar Cota")
+                    else:
+                        self.toggle_dimension_button.config(text="👁️ Mostrar Cota")
+                    line_selected = True
+                    self.redraw_canvas()
+                    break
+            
+            # Si no se seleccionó una línea, verificar puntos de anclaje
+            if not line_selected:
+                for line in self.lines:
+                    if self.is_within_point(world_x, world_y, *line["start"]):
+                        self.selected_point = ("start", line)
+                        self.dragging = True
+                        break
+                    elif self.is_within_point(world_x, world_y, *line["end"]):
+                        self.selected_point = ("end", line)
+                        self.dragging = True
+                        break
 
     def is_within_point(self, click_x, click_y, point_x, point_y):
         return (
@@ -834,10 +905,13 @@ class DrawingApp:
         
         # Redibujar líneas con transformación de zoom
         for i, line in enumerate(self.lines):
-            # Color especial para líneas seleccionadas en modo zona
+            # Color especial para líneas seleccionadas
             if self.zone_selection_mode and i in self.selected_lines_for_zone:
-                color = "#FF5722"  # Naranja para líneas seleccionadas
+                color = "#FF5722"  # Naranja para líneas seleccionadas en modo zona
                 width = 4
+            elif self.selected_line_for_dimension == i:
+                color = "#2196F3"  # Azul para línea seleccionada para ocultar cota
+                width = 3
             else:
                 color = "black"
                 width = 2
@@ -847,8 +921,9 @@ class DrawingApp:
             end_transformed = self._transform_point(*line["end"])
             
             self.canvas.create_line(*start_transformed, *end_transformed, fill=color, width=int(width * self.zoom_level))
-            # Pasar el índice correcto de la línea
-            self.create_label(line["start"], line["end"], line["length"], i)
+            # Solo crear etiqueta si la cota está visible
+            if line.get("dimension_visible", True):
+                self.create_label(line["start"], line["end"], line["length"], i)
             self.draw_anchor_points(line["start"], line["end"])
         
         # Redibujar etiquetas de texto personalizadas
