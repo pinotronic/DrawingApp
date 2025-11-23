@@ -491,16 +491,22 @@ class DrawingApp:
         if self.dragging_text_label is not None:
             return
         
+        # Transformar coordenadas del canvas a coordenadas del mundo
+        world_x, world_y = self._inverse_transform_point(event.x, event.y)
+        
         # Lógica normal para líneas
         if self.start_point is None:
-            self.start_point = (event.x, event.y)
-            self.canvas.create_oval(event.x-5, event.y-5, event.x+5, event.y+5, fill="red")
+            self.start_point = (world_x, world_y)
+            # Dibujar punto con transformación
+            canvas_x, canvas_y = self._transform_point(world_x, world_y)
+            radius = int(5 * self.zoom_level)
+            self.canvas.create_oval(canvas_x-radius, canvas_y-radius, canvas_x+radius, canvas_y+radius, fill="red")
         else:
             for line in self.lines:
-                if self.is_within_point(event.x, event.y, *line["start"]):
+                if self.is_within_point(world_x, world_y, *line["start"]):
                     self.selected_point = ("start", line)
                     self.dragging = True
-                elif self.is_within_point(event.x, event.y, *line["end"]):
+                elif self.is_within_point(world_x, world_y, *line["end"]):
                     self.selected_point = ("end", line)
                     self.dragging = True
 
@@ -515,7 +521,8 @@ class DrawingApp:
     def move_point(self, event):
         if self.dragging and self.selected_point is not None:
             point_type, line = self.selected_point
-            new_x, new_y = event.x, event.y
+            # Transformar coordenadas del canvas a coordenadas del mundo
+            new_x, new_y = self._inverse_transform_point(event.x, event.y)
 
             if self.fixed_movement_mode:
                 # Calcular ángulos en múltiplos de 10 grados
@@ -538,10 +545,8 @@ class DrawingApp:
 
             if point_type == "end":
                 line["end"] = (new_x, new_y)
-                self.canvas.coords(line["line"], *line["start"], new_x, new_y)
             elif point_type == "start":
                 line["start"] = (new_x, new_y)
-                self.canvas.coords(line["line"], new_x, new_y, *line["end"])
 
             # Actualizar la longitud y la etiqueta
             line["length"] = self.calculate_length(line["start"], line["end"])
@@ -1221,9 +1226,8 @@ class DrawingApp:
         """Inicia el arrastre de una etiqueta de texto."""
         if index < len(self.text_labels):
             self.dragging_text_label = index
-            # Guardar posición inicial del mouse
-            self.drag_start_x = event.x
-            self.drag_start_y = event.y
+            # Guardar posición inicial del mouse en coordenadas del mundo
+            self.drag_start_x, self.drag_start_y = self._inverse_transform_point(event.x, event.y)
             
             # Bind para mover
             self.canvas.bind("<B1-Motion>", self.drag_text_label)
@@ -1236,20 +1240,23 @@ class DrawingApp:
             if index < len(self.text_labels):
                 label_data = self.text_labels[index]
                 
-                # Calcular desplazamiento
-                dx = event.x - self.drag_start_x
-                dy = event.y - self.drag_start_y
+                # Transformar coordenadas del mouse a coordenadas del mundo
+                world_x, world_y = self._inverse_transform_point(event.x, event.y)
                 
-                # Mover solo el texto (no hay fondo)
-                self.canvas.move(label_data['text_id'], dx, dy)
+                # Calcular desplazamiento en coordenadas del mundo
+                dx = world_x - self.drag_start_x
+                dy = world_y - self.drag_start_y
                 
-                # Actualizar posición guardada
+                # Actualizar posición guardada en coordenadas del mundo
                 label_data['x'] += dx
                 label_data['y'] += dy
                 
                 # Actualizar posición inicial para el siguiente movimiento
-                self.drag_start_x = event.x
-                self.drag_start_y = event.y
+                self.drag_start_x = world_x
+                self.drag_start_y = world_y
+                
+                # Redibujar para aplicar la transformación correcta
+                self.redraw_canvas()
     
     def stop_drag_text_label(self, event):
         """Detiene el arrastre de una etiqueta de texto."""
@@ -1874,18 +1881,21 @@ class DrawingApp:
         if not self.zone_selection_mode:
             return False
         
+        # Transformar coordenadas del canvas a coordenadas del mundo
+        world_x, world_y = self._inverse_transform_point(event.x, event.y)
+        
         # Buscar línea cercana al clic (búsqueda mejorada)
         closest_line = None
         min_distance = float('inf')
-        tolerance = 20  # Aumentado para facilitar selección
+        tolerance = 20  # En píxeles del mundo
         
         for i, line_data in enumerate(self.lines):
             # Usar las coordenadas directamente del dict line_data
             x1, y1 = line_data["start"]
             x2, y2 = line_data["end"]
             
-            # Calcular distancia del punto a la línea
-            distance = self._distance_point_to_line(event.x, event.y, x1, y1, x2, y2)
+            # Calcular distancia del punto a la línea (en coordenadas del mundo)
+            distance = self._distance_point_to_line(world_x, world_y, x1, y1, x2, y2)
             
             if distance < min_distance and distance <= tolerance:
                 min_distance = distance
