@@ -44,6 +44,14 @@ class DrawingApp:
         self.compass_size = 60  # Tamaño de la rosa de los vientos
         self._last_slider_value = 0  # Rastrear posición previa del slider
         
+        # Variables para zoom y pan
+        self.zoom_level = 1.0  # Nivel de zoom (1.0 = 100%)
+        self.zoom_min = 0.1  # Zoom mínimo (10%)
+        self.zoom_max = 5.0  # Zoom máximo (500%)
+        self.pan_start = None  # Punto de inicio para pan/desplazamiento
+        self.canvas_offset_x = 0  # Desplazamiento X del canvas
+        self.canvas_offset_y = 0  # Desplazamiento Y del canvas
+        
         # Inicializar Claude Analyzer (con manejo de errores)
         self.claude_analyzer = None
         self._initialize_claude()
@@ -57,6 +65,13 @@ class DrawingApp:
         self.canvas.bind("<ButtonRelease-1>", self.release_point)
         self.canvas.bind("<Button-3>", self.on_label_right_click)
         self.canvas.bind("<Double-Button-1>", self.on_text_label_double_click)
+        
+        # Bindings para zoom con rueda del mouse
+        self.canvas.bind("<Control-MouseWheel>", self.on_mouse_wheel_zoom)
+        # Bindings para pan con botón central del mouse
+        self.canvas.bind("<Button-2>", self.start_pan)
+        self.canvas.bind("<B2-Motion>", self.do_pan)
+        self.canvas.bind("<ButtonRelease-2>", self.end_pan)
 
     def setup_ui(self):
         # Barra de herramientas IZQUIERDA con scroll
@@ -314,6 +329,74 @@ class DrawingApp:
         # Separador
         tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
 
+        # SECCIÓN: ZOOM
+        tk.Label(
+            toolbar,
+            text="🔍 Zoom",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 5))
+        
+        # Frame para botones de zoom
+        zoom_buttons_frame = tk.Frame(toolbar, bg="#f0f0f0")
+        zoom_buttons_frame.pack(pady=5)
+        
+        # Botón Zoom Out
+        tk.Button(
+            zoom_buttons_frame,
+            text="➖",
+            command=self.zoom_out,
+            font=("Arial", 12, "bold"),
+            width=4,
+            bg="#FFC107"
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # Botón Reset Zoom
+        tk.Button(
+            zoom_buttons_frame,
+            text="100%",
+            command=self.reset_zoom,
+            font=("Arial", 9, "bold"),
+            width=6
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # Botón Zoom In
+        tk.Button(
+            zoom_buttons_frame,
+            text="➕",
+            command=self.zoom_in,
+            font=("Arial", 12, "bold"),
+            width=4,
+            bg="#FFC107"
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # Label mostrando nivel de zoom actual
+        self.zoom_label = tk.Label(
+            toolbar,
+            text="Zoom: 100%",
+            bg="#f0f0f0",
+            font=("Arial", 8),
+            fg="#666"
+        )
+        self.zoom_label.pack(pady=2)
+        
+        # Nota informativa
+        info_zoom = tk.Label(
+            toolbar,
+            text="💡 Ctrl + Rueda para zoom\nBotón central para mover",
+            bg="#FFF3E0",
+            fg="#E65100",
+            font=("Arial", 7),
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=5,
+            pady=3
+        )
+        info_zoom.pack(pady=5, padx=5, fill=tk.X)
+
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
+
         # SECCIÓN: ANÁLISIS Y EXPORTACIÓN
         tk.Label(
             toolbar,
@@ -555,13 +638,19 @@ class DrawingApp:
         ext2_end_y = end[1] + overshoot_y
         
         # Dibujar líneas de extensión (líneas finas, gris)
+        # Aplicar transformaciones de zoom
+        ext1_start_t = self._transform_point(ext1_start_x, ext1_start_y)
+        ext1_end_t = self._transform_point(ext1_end_x, ext1_end_y)
+        ext2_start_t = self._transform_point(ext2_start_x, ext2_start_y)
+        ext2_end_t = self._transform_point(ext2_end_x, ext2_end_y)
+        
         ext_line_1 = self.canvas.create_line(
-            ext1_start_x, ext1_start_y, ext1_end_x, ext1_end_y,
-            fill="#666", width=1, tags="dimension"
+            *ext1_start_t, *ext1_end_t,
+            fill="#666", width=max(1, int(1 * self.zoom_level)), tags="dimension"
         )
         ext_line_2 = self.canvas.create_line(
-            ext2_start_x, ext2_start_y, ext2_end_x, ext2_end_y,
-            fill="#666", width=1, tags="dimension"
+            *ext2_start_t, *ext2_end_t,
+            fill="#666", width=max(1, int(1 * self.zoom_level)), tags="dimension"
         )
         
         # --- LÍNEA DE COTA ---
@@ -571,10 +660,14 @@ class DrawingApp:
         dim_end_x = end[0] + offset_x
         dim_end_y = end[1] + offset_y
         
+        # Aplicar transformaciones
+        dim_start_t = self._transform_point(dim_start_x, dim_start_y)
+        dim_end_t = self._transform_point(dim_end_x, dim_end_y)
+        
         # Dibujar línea de cota
         dim_line = self.canvas.create_line(
-            dim_start_x, dim_start_y, dim_end_x, dim_end_y,
-            fill="#333", width=1, tags="dimension"
+            *dim_start_t, *dim_end_t,
+            fill="#333", width=max(1, int(1 * self.zoom_level)), tags="dimension"
         )
         
         # --- FLECHAS EN LOS EXTREMOS ---
@@ -587,22 +680,31 @@ class DrawingApp:
         text_x = (dim_start_x + dim_end_x) / 2
         text_y = (dim_start_y + dim_end_y) / 2
         
+        # Aplicar transformación
+        text_t = self._transform_point(text_x, text_y)
+        
         # Calcular ángulo del texto para que siempre sea legible
         text_angle_deg = math.degrees(line_angle)
         # Normalizar el ángulo para que el texto no aparezca al revés
         if text_angle_deg > 90 or text_angle_deg < -90:
             text_angle_deg += 180
         
+        # Tamaños escalados
+        rect_width = int(25 * self.zoom_level)
+        rect_height = int(10 * self.zoom_level)
+        font_size = max(8, int(10 * self.zoom_level))
+        
         # Crear texto con fondo blanco para mejor legibilidad
         label_bg = self.canvas.create_rectangle(
-            text_x - 25, text_y - 10, text_x + 25, text_y + 10,
+            text_t[0] - rect_width, text_t[1] - rect_height, 
+            text_t[0] + rect_width, text_t[1] + rect_height,
             fill="white", outline="", tags="dimension"
         )
         
         label = self.canvas.create_text(
-            text_x, text_y,
+            *text_t,
             text=f"{length:.2f} m",
-            font=("Arial", 10),
+            font=("Arial", font_size),
             fill="#000",
             tags="dimension"
         )
@@ -627,18 +729,24 @@ class DrawingApp:
         tip_x = x
         tip_y = y
         
-        # Base de la flecha
+        # Base de la flecha (escalada)
+        arrow_size = self.ARROW_SIZE
         base_angle1 = angle + math.radians(150)
         base_angle2 = angle + math.radians(-150)
         
-        base1_x = tip_x + self.ARROW_SIZE * math.cos(base_angle1)
-        base1_y = tip_y + self.ARROW_SIZE * math.sin(base_angle1)
-        base2_x = tip_x + self.ARROW_SIZE * math.cos(base_angle2)
-        base2_y = tip_y + self.ARROW_SIZE * math.sin(base_angle2)
+        base1_x = tip_x + arrow_size * math.cos(base_angle1)
+        base1_y = tip_y + arrow_size * math.sin(base_angle1)
+        base2_x = tip_x + arrow_size * math.cos(base_angle2)
+        base2_y = tip_y + arrow_size * math.sin(base_angle2)
+        
+        # Aplicar transformaciones de zoom
+        tip_t = self._transform_point(tip_x, tip_y)
+        base1_t = self._transform_point(base1_x, base1_y)
+        base2_t = self._transform_point(base2_x, base2_y)
         
         # Crear polígono de flecha
         arrow = self.canvas.create_polygon(
-            tip_x, tip_y, base1_x, base1_y, base2_x, base2_y,
+            *tip_t, *base1_t, *base2_t,
             fill="#333", outline="#333", tags="dimension"
         )
         
@@ -696,8 +804,13 @@ class DrawingApp:
         return math.atan2(dy, dx)
 
     def draw_anchor_points(self, start, end):
-        self.canvas.create_oval(start[0]-5, start[1]-5, start[0]+5, start[1]+5, fill="red")
-        self.canvas.create_oval(end[0]-5, end[1]-5, end[0]+5, end[1]+5, fill="red")
+        # Aplicar transformación de zoom
+        start_t = self._transform_point(*start)
+        end_t = self._transform_point(*end)
+        radius = int(5 * self.zoom_level)
+        
+        self.canvas.create_oval(start_t[0]-radius, start_t[1]-radius, start_t[0]+radius, start_t[1]+radius, fill="red")
+        self.canvas.create_oval(end_t[0]-radius, end_t[1]-radius, end_t[0]+radius, end_t[1]+radius, fill="red")
 
     def clear_canvas(self):
         self.canvas.delete("all")
@@ -714,7 +827,7 @@ class DrawingApp:
         for zone in self.zone_manager.get_all_zones():
             self.visualize_zone(zone)
         
-        # Redibujar líneas
+        # Redibujar líneas con transformación de zoom
         for i, line in enumerate(self.lines):
             # Color especial para líneas seleccionadas en modo zona
             if self.zone_selection_mode and i in self.selected_lines_for_zone:
@@ -724,7 +837,11 @@ class DrawingApp:
                 color = "black"
                 width = 2
             
-            self.canvas.create_line(*line["start"], *line["end"], fill=color, width=width)
+            # Aplicar transformación de zoom a los puntos
+            start_transformed = self._transform_point(*line["start"])
+            end_transformed = self._transform_point(*line["end"])
+            
+            self.canvas.create_line(*start_transformed, *end_transformed, fill=color, width=int(width * self.zoom_level))
             # Pasar el índice correcto de la línea
             self.create_label(line["start"], line["end"], line["length"], i)
             self.draw_anchor_points(line["start"], line["end"])
@@ -733,11 +850,14 @@ class DrawingApp:
         for i, label_data in enumerate(self.text_labels):
             angle = label_data.get('angle', 0)
             
+            # Aplicar transformación de zoom
+            pos_transformed = self._transform_point(label_data['x'], label_data['y'])
+            
             # Crear texto primero para obtener su bbox
             text_id = self.canvas.create_text(
-                label_data['x'], label_data['y'],
+                pos_transformed[0], pos_transformed[1],
                 text=label_data['text'],
-                font=("Arial", 14, "bold"),
+                font=("Arial", int(14 * self.zoom_level), "bold"),
                 fill="#333",
                 angle=angle,  # Tkinter soporta rotación de texto con el parámetro 'angle'
                 tags="text_label"
@@ -1562,6 +1682,124 @@ class DrawingApp:
             text="Cerrar",
             command=results_window.destroy
         ).pack(side=tk.RIGHT, padx=5)
+    
+    # ============================================================================
+    # MÉTODOS PARA ZOOM Y PAN
+    # ============================================================================
+    
+    def zoom_in(self):
+        """Aumenta el zoom en un 20%."""
+        new_zoom = min(self.zoom_level * 1.2, self.zoom_max)
+        self._apply_zoom(new_zoom)
+    
+    def zoom_out(self):
+        """Reduce el zoom en un 20%."""
+        new_zoom = max(self.zoom_level / 1.2, self.zoom_min)
+        self._apply_zoom(new_zoom)
+    
+    def reset_zoom(self):
+        """Resetea el zoom al 100%."""
+        self._apply_zoom(1.0)
+        self.canvas_offset_x = 0
+        self.canvas_offset_y = 0
+    
+    def on_mouse_wheel_zoom(self, event):
+        """Maneja el zoom con Ctrl + rueda del mouse."""
+        # event.delta es positivo para scroll arriba, negativo para abajo
+        if event.delta > 0:
+            new_zoom = min(self.zoom_level * 1.1, self.zoom_max)
+        else:
+            new_zoom = max(self.zoom_level / 1.1, self.zoom_min)
+        
+        # Aplicar zoom centrado en la posición del mouse
+        mouse_x = event.x
+        mouse_y = event.y
+        
+        # Calcular el punto en coordenadas del mundo antes del zoom
+        world_x = (mouse_x - self.canvas_offset_x) / self.zoom_level
+        world_y = (mouse_y - self.canvas_offset_y) / self.zoom_level
+        
+        # Aplicar nuevo zoom
+        self.zoom_level = new_zoom
+        
+        # Ajustar offset para mantener el punto bajo el mouse
+        self.canvas_offset_x = mouse_x - world_x * self.zoom_level
+        self.canvas_offset_y = mouse_y - world_y * self.zoom_level
+        
+        # Actualizar UI
+        self.zoom_label.config(text=f"Zoom: {int(self.zoom_level * 100)}%")
+        self.redraw_canvas()
+    
+    def _apply_zoom(self, new_zoom):
+        """Aplica un nivel de zoom específico."""
+        if new_zoom == self.zoom_level:
+            return
+        
+        # Calcular centro del canvas
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        center_x = canvas_width / 2
+        center_y = canvas_height / 2
+        
+        # Calcular el punto central en coordenadas del mundo
+        world_center_x = (center_x - self.canvas_offset_x) / self.zoom_level
+        world_center_y = (center_y - self.canvas_offset_y) / self.zoom_level
+        
+        # Aplicar nuevo zoom
+        self.zoom_level = new_zoom
+        
+        # Ajustar offset para mantener el centro
+        self.canvas_offset_x = center_x - world_center_x * self.zoom_level
+        self.canvas_offset_y = center_y - world_center_y * self.zoom_level
+        
+        # Actualizar UI
+        self.zoom_label.config(text=f"Zoom: {int(self.zoom_level * 100)}%")
+        self.redraw_canvas()
+        
+        print(f"Zoom ajustado a {int(self.zoom_level * 100)}%")
+    
+    def start_pan(self, event):
+        """Inicia el modo de desplazamiento (pan)."""
+        self.pan_start = (event.x, event.y)
+        self.canvas.config(cursor="fleur")  # Cambiar cursor a mano
+    
+    def do_pan(self, event):
+        """Realiza el desplazamiento del canvas."""
+        if self.pan_start is None:
+            return
+        
+        # Calcular desplazamiento
+        dx = event.x - self.pan_start[0]
+        dy = event.y - self.pan_start[1]
+        
+        # Actualizar offset
+        self.canvas_offset_x += dx
+        self.canvas_offset_y += dy
+        
+        # Actualizar punto de inicio
+        self.pan_start = (event.x, event.y)
+        
+        # Redibujar
+        self.redraw_canvas()
+    
+    def end_pan(self, event):
+        """Finaliza el modo de desplazamiento."""
+        self.pan_start = None
+        self.canvas.config(cursor="")  # Restaurar cursor
+    
+    def _transform_point(self, x, y):
+        """Transforma un punto aplicando zoom y offset."""
+        return (
+            x * self.zoom_level + self.canvas_offset_x,
+            y * self.zoom_level + self.canvas_offset_y
+        )
+    
+    def _inverse_transform_point(self, x, y):
+        """Transforma un punto de coordenadas canvas a coordenadas mundo."""
+        return (
+            (x - self.canvas_offset_x) / self.zoom_level,
+            (y - self.canvas_offset_y) / self.zoom_level
+        )
     
     # ============================================================================
     # MÉTODOS PARA GESTIÓN DE ZONAS
