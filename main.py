@@ -435,11 +435,11 @@ class DrawingApp:
             new_x, new_y = event.x, event.y
 
             if self.fixed_movement_mode:
-                # Calcular ángulos en múltiplos de 45 grados
+                # Calcular ángulos en múltiplos de 10 grados
                 start_x, start_y = line["start"] if point_type == "end" else line["end"]
                 angle_radians = math.atan2(new_y - start_y, new_x - start_x)
                 angle_degrees = math.degrees(angle_radians)
-                snap_angle = round(angle_degrees / 45) * 45
+                snap_angle = round(angle_degrees / 10) * 10
                 snap_radians = math.radians(snap_angle)
                 length = math.sqrt((new_x - start_x) ** 2 + (new_y - start_y) ** 2)
                 new_x = start_x + length * math.cos(snap_radians)
