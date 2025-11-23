@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter.simpledialog import askfloat, askstring
 from tkinter import scrolledtext, messagebox, ttk
 import math
+import json
+from datetime import datetime
 from tkinter import filedialog
 from claude_analyzer import ClaudeAnalyzer, load_env_file
 from zone_manager import ZoneManager
@@ -53,6 +55,15 @@ class DrawingApp:
         self.canvas_offset_x = 0  # Desplazamiento X del canvas
         self.canvas_offset_y = 0  # Desplazamiento Y del canvas
         
+        # Variables para gestión de archivos y guardado
+        self.current_file = None  # Ruta del archivo actual
+        self.has_unsaved_changes = False  # Indica si hay cambios sin guardar
+        self.project_metadata = {  # Metadatos del proyecto
+            'created': None,
+            'modified': None,
+            'author': ''
+        }
+        
         # Inicializar Claude Analyzer (con manejo de errores)
         self.claude_analyzer = None
         self._initialize_claude()
@@ -73,6 +84,12 @@ class DrawingApp:
         self.canvas.bind("<Button-2>", self.start_pan)
         self.canvas.bind("<B2-Motion>", self.do_pan)
         self.canvas.bind("<ButtonRelease-2>", self.end_pan)
+        
+        # Binding para guardar con Ctrl+S
+        self.root.bind("<Control-s>", lambda e: self.save_project())
+        
+        # Protocolo de cierre de ventana
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def setup_ui(self):
         # Barra de herramientas IZQUIERDA con scroll
@@ -430,6 +447,42 @@ class DrawingApp:
             bg="#f0f0f0"
         ).pack(pady=(5, 5))
         
+        # Botón para guardar proyecto
+        save_button = tk.Button(
+            toolbar,
+            text="💾 Guardar Proyecto",
+            command=self.save_project,
+            bg="#2196F3",
+            fg="white",
+            font=("Arial", 9, "bold"),
+            width=18
+        )
+        save_button.pack(pady=2)
+        
+        # Botón para abrir proyecto
+        open_button = tk.Button(
+            toolbar,
+            text="📂 Abrir Proyecto",
+            command=self.open_project,
+            bg="#9C27B0",
+            fg="white",
+            font=("Arial", 9, "bold"),
+            width=18
+        )
+        open_button.pack(pady=2)
+        
+        # Botón para nuevo proyecto
+        new_button = tk.Button(
+            toolbar,
+            text="📄 Nuevo Proyecto",
+            command=self.new_project,
+            width=18
+        )
+        new_button.pack(pady=2)
+        
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=5)
+        
         # Botón para análisis con IA
         self.ai_button = tk.Button(
             toolbar, 
@@ -445,7 +498,7 @@ class DrawingApp:
         # Botón para exportar a SVG
         export_button = tk.Button(
             toolbar, 
-            text="💾 Exportar SVG", 
+            text="📤 Exportar SVG", 
             command=self.export_to_svg,
             width=18
         )
@@ -496,6 +549,7 @@ class DrawingApp:
             
             # Redibujar canvas
             self.redraw_canvas()
+            self.mark_unsaved_changes()
         else:
             messagebox.showwarning(
                 "Ninguna Línea Seleccionada",
@@ -530,6 +584,7 @@ class DrawingApp:
             # Ajustar la posición en Y para que la nueva línea se dibuje más abajo
             self.current_y_offset += 30  # Desplazamos las líneas 30 píxeles hacia abajo cada vez
             self.start_point = (50, self.current_y_offset + 50)
+            self.mark_unsaved_changes()
 
     def on_canvas_click(self, event):
         # Prioridad 1: Modo de selección de zonas
@@ -626,6 +681,7 @@ class DrawingApp:
             line["length"] = self.calculate_length(line["start"], line["end"])
             self.update_label(line)
             self.redraw_canvas()
+            self.mark_unsaved_changes()
 
     def release_point(self, event):
         self.dragging = False
@@ -865,6 +921,7 @@ class DrawingApp:
         self.canvas.coords(line["line"], *line["start"], *line["end"])
         self.update_label(line)
         self.redraw_canvas()
+        self.mark_unsaved_changes()
 
     def update_label(self, line):
         """Actualiza la acotación cuando cambia una línea."""
@@ -1093,6 +1150,7 @@ class DrawingApp:
         self.redraw_canvas()
         
         print(f"Plano rotado {angle_increment}°. Orientación actual: {self.rotation_angle}°")
+        self.mark_unsaved_changes()
     
     def on_slider_moved(self, value):
         """Se llama mientras se arrastra el slider."""
@@ -1228,6 +1286,7 @@ class DrawingApp:
         self.redraw_canvas()
         
         print(f"Dibujo centrado. Desplazamiento: ({offset_x:.1f}, {offset_y:.1f})")
+        self.mark_unsaved_changes()
         
         # Contar elementos centrados
         total_elements = len(self.lines) + len(self.text_labels)
@@ -1295,6 +1354,7 @@ class DrawingApp:
         )
         
         print(f"Etiqueta '{text}' añadida en el centro ({center_x}, {center_y}).")
+        self.mark_unsaved_changes()
 
     def add_extra_label(self, event):
         """Método legacy - ahora usa enable_add_label_mode directamente."""
@@ -1335,6 +1395,7 @@ class DrawingApp:
                 
                 # Redibujar para aplicar la transformación correcta
                 self.redraw_canvas()
+                self.mark_unsaved_changes()
     
     def stop_drag_text_label(self, event):
         """Detiene el arrastre de una etiqueta de texto."""
@@ -1480,6 +1541,7 @@ class DrawingApp:
         self.redraw_canvas()
         
         print(f"Etiqueta '{label_data['text']}' rotada a {angle:.0f}°")
+        self.mark_unsaved_changes()
 
     def export_to_svg(self):
         # Abrir un cuadro de diálogo para guardar el archivo
@@ -1610,6 +1672,283 @@ class DrawingApp:
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar el archivo SVG:\n{e}")
             print(f"Error al guardar el archivo SVG: {e}")
+    
+    # ============================================================================
+    # MÉTODOS PARA GUARDADO Y CARGA DE PROYECTOS
+    # ============================================================================
+    
+    def mark_unsaved_changes(self):
+        """Marca que hay cambios sin guardar y actualiza el título."""
+        if not self.has_unsaved_changes:
+            self.has_unsaved_changes = True
+            self.update_window_title()
+    
+    def update_window_title(self):
+        """Actualiza el título de la ventana con el nombre del archivo y estado de guardado."""
+        title = "Drawing App - Planos para Avalúos"
+        if self.current_file:
+            filename = self.current_file.split('/')[-1].split('\\')[-1]
+            title = f"{filename} - {title}"
+        if self.has_unsaved_changes:
+            title = f"*{title}"
+        self.root.title(title)
+    
+    def new_project(self):
+        """Crea un nuevo proyecto vacío."""
+        if self.has_unsaved_changes:
+            response = messagebox.askyesnocancel(
+                "Guardar cambios",
+                "¿Deseas guardar los cambios antes de crear un nuevo proyecto?"
+            )
+            if response is None:  # Cancelar
+                return
+            elif response:  # Sí
+                self.save_project()
+        
+        # Limpiar todo
+        self.clear_canvas()
+        self.current_file = None
+        self.has_unsaved_changes = False
+        self.rotation_angle = 0
+        self.zoom_level = 1.0
+        self.canvas_offset_x = 0
+        self.canvas_offset_y = 0
+        self.project_metadata = {
+            'created': datetime.now().isoformat(),
+            'modified': datetime.now().isoformat(),
+            'author': ''
+        }
+        self.update_window_title()
+        print("Nuevo proyecto creado")
+    
+    def save_project(self):
+        """Guarda el proyecto actual."""
+        if self.current_file:
+            self._save_to_file(self.current_file)
+        else:
+            self.save_project_as()
+    
+    def save_project_as(self):
+        """Guarda el proyecto con un nuevo nombre."""
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".drawapp",
+            filetypes=[("DrawApp Project", "*.drawapp"), ("JSON files", "*.json"), ("All files", "*.*")],
+            title="Guardar proyecto como"
+        )
+        if file_path:
+            self._save_to_file(file_path)
+    
+    def _save_to_file(self, file_path):
+        """Guarda el proyecto en el archivo especificado."""
+        try:
+            # Preparar datos para serialización
+            project_data = {
+                'version': '1.0',
+                'metadata': {
+                    'created': self.project_metadata.get('created', datetime.now().isoformat()),
+                    'modified': datetime.now().isoformat(),
+                    'author': self.project_metadata.get('author', ''),
+                    'scale': self.SCALE
+                },
+                'lines': [
+                    {
+                        'start': line['start'],
+                        'end': line['end'],
+                        'length': line['length'],
+                        'dimension_visible': line.get('dimension_visible', True)
+                    }
+                    for line in self.lines
+                ],
+                'zones': [
+                    {
+                        'name': zone.name,
+                        'type': zone.zone_type,
+                        'line_indices': zone.line_indices,
+                        'area': zone.area,
+                        'perimeter': zone.perimeter
+                    }
+                    for zone in self.zone_manager.get_all_zones()
+                ],
+                'text_labels': [
+                    {
+                        'text': label['text'],
+                        'x': label['x'],
+                        'y': label['y'],
+                        'angle': label.get('angle', 0)
+                    }
+                    for label in self.text_labels
+                ],
+                'settings': {
+                    'rotation_angle': self.rotation_angle,
+                    'zoom_level': self.zoom_level,
+                    'canvas_offset_x': self.canvas_offset_x,
+                    'canvas_offset_y': self.canvas_offset_y,
+                    'fixed_movement_mode': self.fixed_movement_mode
+                }
+            }
+            
+            # Guardar a archivo JSON
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(project_data, f, indent=2, ensure_ascii=False)
+            
+            self.current_file = file_path
+            self.has_unsaved_changes = False
+            self.project_metadata['modified'] = project_data['metadata']['modified']
+            self.update_window_title()
+            
+            messagebox.showinfo(
+                "Guardado Exitoso",
+                f"✅ Proyecto guardado correctamente en:\n{file_path}\n\n"
+                f"Líneas: {len(self.lines)}\n"
+                f"Zonas: {len(self.zone_manager.get_all_zones())}\n"
+                f"Etiquetas: {len(self.text_labels)}"
+            )
+            print(f"Proyecto guardado en: {file_path}")
+            
+        except Exception as e:
+            messagebox.showerror("Error al Guardar", f"No se pudo guardar el proyecto:\n{e}")
+            print(f"Error al guardar proyecto: {e}")
+    
+    def open_project(self):
+        """Abre un proyecto existente."""
+        if self.has_unsaved_changes:
+            response = messagebox.askyesnocancel(
+                "Guardar cambios",
+                "¿Deseas guardar los cambios antes de abrir otro proyecto?"
+            )
+            if response is None:  # Cancelar
+                return
+            elif response:  # Sí
+                self.save_project()
+        
+        file_path = filedialog.askopenfilename(
+            filetypes=[("DrawApp Project", "*.drawapp"), ("JSON files", "*.json"), ("All files", "*.*")],
+            title="Abrir proyecto"
+        )
+        
+        if file_path:
+            self._load_from_file(file_path)
+    
+    def _load_from_file(self, file_path):
+        """Carga un proyecto desde un archivo."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                project_data = json.load(f)
+            
+            # Validar versión
+            version = project_data.get('version', '1.0')
+            if version != '1.0':
+                messagebox.showwarning(
+                    "Versión Diferente",
+                    f"Este proyecto fue creado con la versión {version}. Puede haber problemas de compatibilidad."
+                )
+            
+            # Limpiar estado actual
+            self.clear_canvas()
+            
+            # Cargar metadatos
+            metadata = project_data.get('metadata', {})
+            self.project_metadata = {
+                'created': metadata.get('created'),
+                'modified': metadata.get('modified'),
+                'author': metadata.get('author', '')
+            }
+            self.SCALE = metadata.get('scale', 50)
+            
+            # Cargar líneas
+            lines_data = project_data.get('lines', [])
+            for line_data in lines_data:
+                line_obj = {
+                    'start': tuple(line_data['start']),
+                    'end': tuple(line_data['end']),
+                    'length': line_data['length'],
+                    'dimension_visible': line_data.get('dimension_visible', True),
+                    'line': None  # Se creará al redibujar
+                }
+                self.lines.append(line_obj)
+            
+            # Cargar zonas
+            self.zone_manager.zones.clear()
+            zones_data = project_data.get('zones', [])
+            for zone_data in zones_data:
+                # Recrear zonas usando el zone_manager
+                from zone_manager import Zone
+                zone = Zone(
+                    name=zone_data['name'],
+                    zone_type=zone_data['type'],
+                    line_indices=zone_data['line_indices']
+                )
+                zone.area = zone_data.get('area', 0.0)
+                zone.perimeter = zone_data.get('perimeter', 0.0)
+                self.zone_manager.zones.append(zone)
+            
+            # Cargar etiquetas de texto
+            text_labels_data = project_data.get('text_labels', [])
+            for label_data in text_labels_data:
+                self.text_labels.append({
+                    'text': label_data['text'],
+                    'x': label_data['x'],
+                    'y': label_data['y'],
+                    'angle': label_data.get('angle', 0),
+                    'text_id': None,  # Se creará al redibujar
+                    'bg_id': None
+                })
+            
+            # Cargar configuración
+            settings = project_data.get('settings', {})
+            self.rotation_angle = settings.get('rotation_angle', 0)
+            self.zoom_level = settings.get('zoom_level', 1.0)
+            self.canvas_offset_x = settings.get('canvas_offset_x', 0)
+            self.canvas_offset_y = settings.get('canvas_offset_y', 0)
+            self.fixed_movement_mode = settings.get('fixed_movement_mode', False)
+            
+            # Actualizar UI
+            self.orientation_label.config(text=f"Rotación: {self.rotation_angle}°")
+            self.zoom_label.config(text=f"Zoom: {int(self.zoom_level * 100)}%")
+            if self.fixed_movement_mode:
+                self.fixed_movement_button.config(bg="green", text="Movimiento Fijo Activado")
+            
+            # Redibujar todo
+            self.redraw_canvas()
+            self.update_zone_list()
+            
+            # Actualizar estado
+            self.current_file = file_path
+            self.has_unsaved_changes = False
+            self.update_window_title()
+            
+            messagebox.showinfo(
+                "Proyecto Cargado",
+                f"✅ Proyecto cargado correctamente:\n{file_path}\n\n"
+                f"Líneas: {len(self.lines)}\n"
+                f"Zonas: {len(self.zone_manager.get_all_zones())}\n"
+                f"Etiquetas: {len(self.text_labels)}\n"
+                f"Creado: {self.project_metadata.get('created', 'N/A')}"
+            )
+            print(f"Proyecto cargado desde: {file_path}")
+            
+        except json.JSONDecodeError as e:
+            messagebox.showerror("Error de Formato", f"El archivo no es un proyecto válido:\n{e}")
+            print(f"Error al leer JSON: {e}")
+        except Exception as e:
+            messagebox.showerror("Error al Cargar", f"No se pudo cargar el proyecto:\n{e}")
+            print(f"Error al cargar proyecto: {e}")
+    
+    def on_closing(self):
+        """Maneja el cierre de la ventana."""
+        if self.has_unsaved_changes:
+            response = messagebox.askyesnocancel(
+                "Guardar cambios",
+                "¿Deseas guardar los cambios antes de salir?"
+            )
+            if response is None:  # Cancelar
+                return
+            elif response:  # Sí
+                self.save_project()
+                if self.has_unsaved_changes:  # Si canceló el guardado
+                    return
+        
+        self.root.destroy()
     
     def _initialize_claude(self):
         """Inicializa el analizador de Claude cargando las variables de entorno."""
@@ -2074,6 +2413,7 @@ class DrawingApp:
         self.selected_lines_for_zone = []
         self.create_zone_button.config(text="➕ Crear Zona", bg="#2196F3")
         self.redraw_canvas()
+        self.mark_unsaved_changes()
     
     def auto_detect_zones(self):
         """Detecta automáticamente zonas cerradas en el plano."""
@@ -2097,6 +2437,7 @@ class DrawingApp:
                 self.visualize_zone(zone)
             
             self.update_zone_list()
+            self.mark_unsaved_changes()
         else:
             messagebox.showinfo(
                 "Sin Zonas",
@@ -2211,6 +2552,7 @@ class DrawingApp:
                 # Actualizar lista
                 self.update_zone_list()
                 self.delete_zone_button.config(state=tk.DISABLED)
+                self.mark_unsaved_changes()
 
 
 class ZoneDialog:
