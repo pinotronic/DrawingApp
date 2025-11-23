@@ -867,6 +867,20 @@ class DrawingApp:
             new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
             line["end"] = (new_x, new_y)
         
+        # Rotar todas las etiquetas de texto
+        for label_data in self.text_labels:
+            # Rotar posición de la etiqueta
+            label_x, label_y = label_data['x'], label_data['y']
+            rel_x = label_x - center_x
+            rel_y = label_y - center_y
+            new_x = rel_x * cos_angle - rel_y * sin_angle + center_x
+            new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
+            label_data['x'] = new_x
+            label_data['y'] = new_y
+            
+            # Rotar el ángulo de la etiqueta también
+            label_data['angle'] = label_data.get('angle', 0) + angle_increment
+        
         # Actualizar label de orientación
         self.orientation_label.config(text=f"Rotación: {self.rotation_angle}°")
         
@@ -913,6 +927,20 @@ class DrawingApp:
                     new_x = rel_x * cos_angle - rel_y * sin_angle + center_x
                     new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
                     line["end"] = (new_x, new_y)
+                
+                # Rotar todas las etiquetas de texto
+                for label_data in self.text_labels:
+                    # Rotar posición de la etiqueta
+                    label_x, label_y = label_data['x'], label_data['y']
+                    rel_x = label_x - center_x
+                    rel_y = label_y - center_y
+                    new_x = rel_x * cos_angle - rel_y * sin_angle + center_x
+                    new_y = rel_x * sin_angle + rel_y * cos_angle + center_y
+                    label_data['x'] = new_x
+                    label_data['y'] = new_y
+                    
+                    # Rotar el ángulo de la etiqueta también
+                    label_data['angle'] = label_data.get('angle', 0) + angle_increment
                 
                 # Actualizar ángulo de rotación total
                 self.rotation_angle = (self.rotation_angle + angle_increment) % 360
