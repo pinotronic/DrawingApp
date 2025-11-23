@@ -85,8 +85,11 @@ class ClaudeAnalyzer:
         # Cálculos básicos
         area = self.geo_utils.calculate_polygon_area(lines_in_meters)
         perimeter = self.geo_utils.calculate_perimeter(lines)
-        is_closed = self.geo_utils.detect_closed_polygon(lines_in_meters)
+        is_closed = self.geo_utils.detect_closed_polygon(lines_in_meters, tolerance=0.5)
         regularity = self.geo_utils.calculate_shape_regularity(lines)
+        
+        # Calcular distancia de cierre para diagnóstico
+        closure_gap = self._calculate_closure_gap(lines_in_meters)
         
         # Detección de patrones
         parallel_lines = self.geo_utils.detect_parallel_lines(lines)
@@ -107,6 +110,7 @@ class ClaudeAnalyzer:
                 'perimeter_m': round(perimeter, 2),
                 'num_lines': len(lines),
                 'is_closed': is_closed,
+                'closure_gap_m': round(closure_gap, 3) if closure_gap is not None else None,
                 'regularity_index': round(regularity, 2)
             },
             'geometry': {
@@ -189,7 +193,15 @@ Analiza el siguiente plano de un inmueble con base en sus características geom�
 - Área total: {measurements['area_m2']} m²
 - Perímetro: {measurements['perimeter_m']} m
 - Número de líneas/muros: {measurements['num_lines']}
-- Polígono cerrado: {'Sí' if measurements['is_closed'] else 'No'}
+- Polígono cerrado: {'Sí' if measurements['is_closed'] else 'No'}"""
+
+        # Agregar información del gap de cierre si el polígono no está cerrado
+        if not measurements['is_closed'] and measurements.get('closure_gap_m') is not None:
+            gap = measurements['closure_gap_m']
+            prompt += f"""
+- Distancia de cierre: {gap} m (gap entre inicio y fin)"""
+        
+        prompt += f"""
 - Índice de regularidad: {measurements['regularity_index']} (0-1, donde 1 es muy regular)
 
 **GEOMETRÍA:**
@@ -297,6 +309,34 @@ Proporciona un análisis estructurado en las siguientes secciones:
     
     # Métodos auxiliares
     
+    def _calculate_closure_gap(self, lines: List[Dict]) -> Optional[float]:
+        """
+        Calcula la distancia de cierre del polígono (gap entre primer y último punto).
+        
+        Args:
+            lines: Lista de líneas en metros
+        
+        Returns:
+            Distancia en metros entre el primer y último punto, o None si no se puede calcular
+        """
+        if len(lines) < 3:
+            return None
+        
+        try:
+            vertices = self.geo_utils._extract_vertices(lines)
+            if len(vertices) < 2:
+                return None
+            
+            first = vertices[0]
+            last = vertices[-1]
+            
+            import math
+            distance = math.sqrt((first[0] - last[0])**2 + (first[1] - last[1])**2)
+            
+            return distance
+        except:
+            return None
+    
     def _convert_to_meters(self, lines: List[Dict], scale: float) -> List[Dict]:
         """Convierte coordenadas de píxeles a metros."""
         converted = []
@@ -351,7 +391,15 @@ Fecha de análisis: {analysis['timestamp']}
   • Área total:        {measurements['area_m2']} m²
   • Perímetro:         {measurements['perimeter_m']} m
   • Número de muros:   {measurements['num_lines']}
-  • Polígono cerrado:  {'✓ Sí' if measurements['is_closed'] else '✗ No'}
+  • Polígono cerrado:  {'✓ Sí' if measurements['is_closed'] else '✗ No'}"""
+
+        # Agregar información del gap de cierre si está disponible
+        if not measurements['is_closed'] and measurements.get('closure_gap_m') is not None:
+            gap = measurements['closure_gap_m']
+            report += f"""
+  • Gap de cierre:    {gap} m (espacio entre inicio y fin)"""
+        
+        report += f"""
   • Regularidad:       {measurements['regularity_index']} / 1.00
 """
 

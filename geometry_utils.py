@@ -54,13 +54,13 @@ class GeometryUtils:
         return sum(line.get('length', 0) for line in lines)
     
     @staticmethod
-    def detect_closed_polygon(lines: List[Dict], tolerance: float = 0.1) -> bool:
+    def detect_closed_polygon(lines: List[Dict], tolerance: float = 0.5) -> bool:
         """
         Detecta si las líneas forman un polígono cerrado.
         
         Args:
             lines: Lista de líneas
-            tolerance: Tolerancia en metros para considerar puntos iguales
+            tolerance: Tolerancia en metros para considerar puntos iguales (default: 0.5m)
         
         Returns:
             True si el polígono está cerrado
@@ -69,6 +69,9 @@ class GeometryUtils:
             return False
         
         vertices = GeometryUtils._extract_vertices(lines)
+        
+        if len(vertices) < 3:
+            return False
         
         # Verificar si el primer y último vértice son el mismo (o muy cercanos)
         first = vertices[0]
