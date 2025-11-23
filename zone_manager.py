@@ -112,7 +112,7 @@ class ZoneManager:
         self.next_id += 1
         
         # Validar y calcular área
-        zone.is_valid = self.geo_utils.validate_zone_closure(zone_lines, tolerance=10.0)
+        zone.is_valid = self.geo_utils.validate_zone_closure(zone_lines, tolerance=20.0)
         
         if zone.is_valid:
             zone.area = self.geo_utils.calculate_zone_area(zone_lines, self.scale)
@@ -165,7 +165,7 @@ class ZoneManager:
         if line_indices and all_lines:
             zone.line_indices = line_indices
             zone_lines = [all_lines[i] for i in line_indices if i < len(all_lines)]
-            zone.is_valid = self.geo_utils.validate_zone_closure(zone_lines, tolerance=10.0)
+            zone.is_valid = self.geo_utils.validate_zone_closure(zone_lines, tolerance=20.0)
             if zone.is_valid:
                 zone.area = self.geo_utils.calculate_zone_area(zone_lines, self.scale)
         

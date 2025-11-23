@@ -255,25 +255,89 @@ class GeometryUtils:
     # Métodos auxiliares privados
     
     @staticmethod
+    def _order_lines_sequential(lines: List[Dict], tolerance: float = 15.0) -> List[Dict]:
+        """Ordena las líneas para formar un camino secuencial cerrado."""
+        if len(lines) < 3:
+            return lines
+        
+        # Empezar con la primera línea
+        ordered = [lines[0]]
+        remaining = lines[1:].copy()
+        
+        while remaining:
+            last_line = ordered[-1]
+            last_end = last_line['end']
+            
+            # Buscar la siguiente línea conectada
+            found = False
+            for i, line in enumerate(remaining):
+                # Verificar si el inicio de esta línea está cerca del final de la última
+                if GeometryUtils._points_near(last_end, line['start'], tolerance):
+                    ordered.append(line)
+                    remaining.pop(i)
+                    found = True
+                    break
+                # Verificar si el final de esta línea está cerca (línea en dirección inversa)
+                elif GeometryUtils._points_near(last_end, line['end'], tolerance):
+                    # Invertir la línea
+                    inverted_line = {
+                        'start': line['end'],
+                        'end': line['start'],
+                        'length': line.get('length', 0)
+                    }
+                    ordered.append(inverted_line)
+                    remaining.pop(i)
+                    found = True
+                    break
+            
+            # Si no encontramos conexión, buscar cualquier línea que conecte con el inicio
+            if not found:
+                first_line = ordered[0]
+                first_start = first_line['start']
+                
+                for i, line in enumerate(remaining):
+                    if GeometryUtils._points_near(first_start, line['end'], tolerance):
+                        # Insertar al inicio
+                        ordered.insert(0, line)
+                        remaining.pop(i)
+                        found = True
+                        break
+                    elif GeometryUtils._points_near(first_start, line['start'], tolerance):
+                        # Invertir e insertar al inicio
+                        inverted_line = {
+                            'start': line['end'],
+                            'end': line['start'],
+                            'length': line.get('length', 0)
+                        }
+                        ordered.insert(0, inverted_line)
+                        remaining.pop(i)
+                        found = True
+                        break
+            
+            # Si aún no encontramos conexión, las líneas no forman un camino
+            if not found:
+                break
+        
+        return ordered
+    
+    @staticmethod
     def _extract_vertices(lines: List[Dict]) -> List[Tuple[float, float]]:
         """Extrae vértices únicos de las líneas en orden."""
         if not lines:
             return []
         
-        vertices = [lines[0]['start']]
+        # Primero ordenar las líneas secuencialmente
+        ordered_lines = GeometryUtils._order_lines_sequential(lines)
         
-        for line in lines:
-            if vertices[-1] != line['start']:
-                vertices.append(line['start'])
+        # Ahora extraer vértices en orden
+        vertices = [ordered_lines[0]['start']]
+        
+        for line in ordered_lines:
+            # Añadir el punto final de cada línea
+            # (el inicio debería estar cerca del vértice anterior)
             vertices.append(line['end'])
         
-        # Remover duplicados consecutivos
-        unique_vertices = [vertices[0]]
-        for v in vertices[1:]:
-            if v != unique_vertices[-1]:
-                unique_vertices.append(v)
-        
-        return unique_vertices
+        return vertices
     
     @staticmethod
     def _get_line_angle(line: Dict) -> float:
@@ -351,7 +415,7 @@ class GeometryUtils:
         return (x_sum / n, y_sum / n)
     
     @staticmethod
-    def validate_zone_closure(zone_lines: List[Dict], tolerance: float = 10.0) -> bool:
+    def validate_zone_closure(zone_lines: List[Dict], tolerance: float = 20.0) -> bool:
         """
         Valida que las líneas de una zona formen un polígono cerrado.
         
