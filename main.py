@@ -552,33 +552,36 @@ class DrawingApp:
             radius = int(5 * self.zoom_level)
             self.canvas.create_oval(canvas_x-radius, canvas_y-radius, canvas_x+radius, canvas_y+radius, fill="red")
         else:
-            # Primero verificar si el clic está cerca de alguna línea (para seleccionar)
-            line_selected = False
-            for i, line in enumerate(self.lines):
-                # Verificar si el clic está cerca de la línea
-                distance = self._distance_point_to_line(world_x, world_y, *line["start"], *line["end"])
-                if distance <= 10:  # Tolerancia de 10 píxeles
-                    self.selected_line_for_dimension = i
-                    self.toggle_dimension_button.config(state=tk.NORMAL)
-                    # Actualizar texto del botón según el estado
-                    if line.get("dimension_visible", True):
-                        self.toggle_dimension_button.config(text="👁️‍🗨️ Ocultar Cota")
-                    else:
-                        self.toggle_dimension_button.config(text="👁️ Mostrar Cota")
-                    line_selected = True
-                    self.redraw_canvas()
+            # PRIORIDAD 1: Verificar primero si el clic está sobre un punto de anclaje (puntos rojos)
+            # Esto tiene mayor prioridad que seleccionar la línea completa
+            point_selected = False
+            for line in self.lines:
+                if self.is_within_point(world_x, world_y, *line["start"]):
+                    self.selected_point = ("start", line)
+                    self.dragging = True
+                    point_selected = True
+                    break
+                elif self.is_within_point(world_x, world_y, *line["end"]):
+                    self.selected_point = ("end", line)
+                    self.dragging = True
+                    point_selected = True
                     break
             
-            # Si no se seleccionó una línea, verificar puntos de anclaje
-            if not line_selected:
-                for line in self.lines:
-                    if self.is_within_point(world_x, world_y, *line["start"]):
-                        self.selected_point = ("start", line)
-                        self.dragging = True
-                        break
-                    elif self.is_within_point(world_x, world_y, *line["end"]):
-                        self.selected_point = ("end", line)
-                        self.dragging = True
+            # PRIORIDAD 2: Si no se seleccionó un punto de anclaje, verificar si el clic está cerca de una línea
+            # (para seleccionar la línea y poder ocultar/mostrar su cota)
+            if not point_selected:
+                for i, line in enumerate(self.lines):
+                    # Verificar si el clic está cerca de la línea
+                    distance = self._distance_point_to_line(world_x, world_y, *line["start"], *line["end"])
+                    if distance <= 10:  # Tolerancia de 10 píxeles
+                        self.selected_line_for_dimension = i
+                        self.toggle_dimension_button.config(state=tk.NORMAL)
+                        # Actualizar texto del botón según el estado
+                        if line.get("dimension_visible", True):
+                            self.toggle_dimension_button.config(text="👁️‍🗨️ Ocultar Cota")
+                        else:
+                            self.toggle_dimension_button.config(text="👁️ Mostrar Cota")
+                        self.redraw_canvas()
                         break
 
     def is_within_point(self, click_x, click_y, point_x, point_y):
