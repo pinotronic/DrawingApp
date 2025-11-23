@@ -64,6 +64,18 @@ class DrawingApp:
             'author': ''
         }
         
+        # Variables para medición múltiple
+        self.multi_measure_mode = False  # Modo de medición múltiple activado
+        self.selected_lines_for_measure = []  # Índices de líneas seleccionadas
+        self.measure_shadow_polygon = None  # ID del polígono sombreado en canvas
+        self.measure_virtual_lines = []  # IDs de líneas virtuales (punteadas)
+        self.measure_info_window = None  # Ventana flotante con información
+        self.measure_hull_points = []  # Puntos del hull para el polígono sombreado
+        self.measure_is_closed = False  # Indica si el polígono está cerrado
+        self.measure_area = 0.0  # Área calculada
+        self.measure_perimeter = 0.0  # Perímetro calculado
+        self.measure_total_length = 0.0  # Longitud total de líneas
+        
         # Inicializar Claude Analyzer (con manejo de errores)
         self.claude_analyzer = None
         self._initialize_claude()
@@ -237,6 +249,66 @@ class DrawingApp:
             pady=3
         )
         info_label.pack(pady=5, padx=5, fill=tk.X)
+
+        # Separador
+        tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
+
+        # SECCIÓN: MEDICIÓN MÚLTIPLE
+        tk.Label(
+            toolbar,
+            text="📐 Medición Múltiple",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 5))
+        
+        # Botón para activar modo de medición múltiple
+        self.multi_measure_button = tk.Button(
+            toolbar,
+            text="📐 Medir Múltiple",
+            command=self.toggle_multi_measure_mode,
+            bg="#00BCD4",
+            fg="white",
+            font=("Arial", 9, "bold"),
+            width=18
+        )
+        self.multi_measure_button.pack(pady=2)
+        
+        # Botón para limpiar selección
+        self.clear_measure_button = tk.Button(
+            toolbar,
+            text="🧹 Limpiar Selección",
+            command=self.clear_multi_measure,
+            state=tk.DISABLED,
+            width=18
+        )
+        self.clear_measure_button.pack(pady=2)
+        
+        # Botón para crear zona desde selección
+        self.create_zone_from_measure_button = tk.Button(
+            toolbar,
+            text="➕ Crear Zona",
+            command=self.create_zone_from_selection,
+            state=tk.DISABLED,
+            bg="#4CAF50",
+            fg="white",
+            font=("Arial", 9, "bold"),
+            width=18
+        )
+        self.create_zone_from_measure_button.pack(pady=2)
+        
+        # Nota informativa
+        info_measure = tk.Label(
+            toolbar,
+            text="💡 Click en líneas para\nseleccionar y medir",
+            bg="#E0F7FA",
+            fg="#00838F",
+            font=("Arial", 8),
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=5,
+            pady=3
+        )
+        info_measure.pack(pady=5, padx=5, fill=tk.X)
 
         # Separador
         tk.Frame(toolbar, height=2, bg="#ccc").pack(fill=tk.X, padx=10, pady=10)
@@ -591,6 +663,11 @@ class DrawingApp:
         if self.zone_selection_mode:
             if self.on_canvas_click_zone_mode(event):
                 return
+        
+        # Prioridad 2: Modo de medición múltiple
+        if self.multi_measure_mode:
+            self.on_canvas_click_measure_mode(event)
+            return
         
         # No hacer nada si se está arrastrando una etiqueta de texto
         if self.dragging_text_label is not None:
@@ -963,10 +1040,17 @@ class DrawingApp:
         for zone in self.zone_manager.get_all_zones():
             self.visualize_zone(zone)
         
+        # Redibujar sombra de medición múltiple (antes de las líneas)
+        if self.multi_measure_mode and len(self.selected_lines_for_measure) >= 3:
+            self._redraw_measure_shadow()
+        
         # Redibujar líneas con transformación de zoom
         for i, line in enumerate(self.lines):
             # Color especial para líneas seleccionadas
-            if self.zone_selection_mode and i in self.selected_lines_for_zone:
+            if self.multi_measure_mode and i in self.selected_lines_for_measure:
+                color = "#FFD700"  # Amarillo dorado para líneas en medición múltiple
+                width = 4
+            elif self.zone_selection_mode and i in self.selected_lines_for_zone:
                 color = "#FF5722"  # Naranja para líneas seleccionadas en modo zona
                 width = 4
             elif self.selected_line_for_dimension == i:
@@ -2553,6 +2637,604 @@ class DrawingApp:
                 self.update_zone_list()
                 self.delete_zone_button.config(state=tk.DISABLED)
                 self.mark_unsaved_changes()
+    
+    # ========================================================================
+    # MÉTODOS PARA MEDICIÓN MÚLTIPLE
+    # ========================================================================
+    
+    def toggle_multi_measure_mode(self):
+        """Activa/desactiva el modo de medición múltiple."""
+        self.multi_measure_mode = not self.multi_measure_mode
+        
+        if self.multi_measure_mode:
+            # Activar modo
+            self.multi_measure_button.config(
+                text="✅ Modo Activo",
+                bg="#4CAF50"
+            )
+            self.clear_measure_button.config(state=tk.NORMAL)
+            
+            # Crear ventana de información
+            self.create_measure_info_window()
+            
+            # Mensaje informativo
+            messagebox.showinfo(
+                "Medición Múltiple",
+                "Modo activado.\n\n" +
+                "• Click en líneas para seleccionarlas\n" +
+                "• Ctrl+Click para deseleccionar\n" +
+                "• Se mostrará el área sombreada automáticamente"
+            )
+        else:
+            # Desactivar modo
+            self.multi_measure_button.config(
+                text="📐 Medir Múltiple",
+                bg="#00BCD4"
+            )
+            self.clear_multi_measure()
+            
+            # Cerrar ventana de información
+            if self.measure_info_window:
+                self.measure_info_window.destroy()
+                self.measure_info_window = None
+    
+    def create_measure_info_window(self):
+        """Crea una ventana flotante para mostrar información de medición."""
+        if self.measure_info_window:
+            self.measure_info_window.destroy()
+        
+        # Crear ventana
+        self.measure_info_window = tk.Toplevel(self.root)
+        self.measure_info_window.title("📐 Información de Medición")
+        self.measure_info_window.geometry("320x280")
+        self.measure_info_window.resizable(False, False)
+        
+        # Posicionar en esquina superior derecha
+        screen_width = self.root.winfo_screenwidth()
+        self.measure_info_window.geometry(f"+{screen_width - 350}+50")
+        
+        # Hacer que siempre esté al frente
+        self.measure_info_window.attributes("-topmost", True)
+        
+        # Frame principal con estilo
+        main_frame = tk.Frame(self.measure_info_window, bg="#E0F7FA", padx=15, pady=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Título
+        title = tk.Label(
+            main_frame,
+            text="📐 MEDICIÓN MÚLTIPLE",
+            font=("Arial", 12, "bold"),
+            bg="#E0F7FA",
+            fg="#00838F"
+        )
+        title.pack(pady=(0, 10))
+        
+        # Línea divisoria
+        tk.Frame(main_frame, height=2, bg="#00BCD4").pack(fill=tk.X, pady=5)
+        
+        # Información de líneas
+        self.measure_lines_label = tk.Label(
+            main_frame,
+            text="Líneas seleccionadas: 0",
+            font=("Arial", 10),
+            bg="#E0F7FA",
+            anchor="w"
+        )
+        self.measure_lines_label.pack(fill=tk.X, pady=2)
+        
+        self.measure_length_label = tk.Label(
+            main_frame,
+            text="Longitud total: 0.00 m",
+            font=("Arial", 10, "bold"),
+            bg="#E0F7FA",
+            fg="#00695C",
+            anchor="w"
+        )
+        self.measure_length_label.pack(fill=tk.X, pady=2)
+        
+        # Línea divisoria
+        tk.Frame(main_frame, height=1, bg="#B2EBF2").pack(fill=tk.X, pady=8)
+        
+        # Información de polígono
+        self.measure_polygon_status = tk.Label(
+            main_frame,
+            text="⚠️ Polígono: ABIERTO",
+            font=("Arial", 10, "bold"),
+            bg="#E0F7FA",
+            fg="#FF6F00",
+            anchor="w"
+        )
+        self.measure_polygon_status.pack(fill=tk.X, pady=2)
+        
+        self.measure_area_label = tk.Label(
+            main_frame,
+            text="Área sombreada: --",
+            font=("Arial", 10),
+            bg="#E0F7FA",
+            anchor="w"
+        )
+        self.measure_area_label.pack(fill=tk.X, pady=2)
+        
+        self.measure_perimeter_label = tk.Label(
+            main_frame,
+            text="Perímetro: --",
+            font=("Arial", 10),
+            bg="#E0F7FA",
+            anchor="w"
+        )
+        self.measure_perimeter_label.pack(fill=tk.X, pady=2)
+        
+        # Información adicional
+        tk.Frame(main_frame, height=1, bg="#B2EBF2").pack(fill=tk.X, pady=8)
+        
+        info = tk.Label(
+            main_frame,
+            text="💡 El área se calcula\nautomáticamente cerrando\nel polígono",
+            font=("Arial", 8),
+            bg="#FFFFFF",
+            fg="#00695C",
+            justify=tk.LEFT,
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=8,
+            pady=5
+        )
+        info.pack(fill=tk.X, pady=(5, 0))
+    
+    def on_canvas_click_measure_mode(self, event):
+        """Maneja el clic del canvas en modo de medición múltiple."""
+        # Transformar coordenadas
+        world_x, world_y = self._inverse_transform_point(event.x, event.y)
+        
+        # Verificar si Ctrl está presionado para deseleccionar
+        ctrl_pressed = (event.state & 0x4) != 0
+        
+        # Buscar línea cercana
+        for i, line in enumerate(self.lines):
+            distance = self._distance_point_to_line(world_x, world_y, *line["start"], *line["end"])
+            if distance <= 10:  # Tolerancia de 10 píxeles
+                if ctrl_pressed:
+                    # Deseleccionar si ya está seleccionada
+                    if i in self.selected_lines_for_measure:
+                        self.selected_lines_for_measure.remove(i)
+                else:
+                    # Seleccionar si no está seleccionada
+                    if i not in self.selected_lines_for_measure:
+                        self.selected_lines_for_measure.append(i)
+                
+                # Actualizar visualización
+                self.update_measure_visualization()
+                return
+    
+    def update_measure_visualization(self):
+        """Actualiza la visualización del área sombreada y la información."""
+        # Si no hay líneas seleccionadas, limpiar todo
+        if not self.selected_lines_for_measure:
+            self.clear_measure_button.config(state=tk.DISABLED)
+            self.create_zone_from_measure_button.config(state=tk.DISABLED)
+            self.measure_hull_points = []
+            self.measure_is_closed = False
+            self.measure_area = 0.0
+            self.measure_perimeter = 0.0
+            self.measure_total_length = 0.0
+            self.update_measure_info_labels(0, 0.0, False, 0.0, 0.0)
+            self.redraw_canvas()
+            return
+        
+        # Habilitar botones
+        self.clear_measure_button.config(state=tk.NORMAL)
+        self.create_zone_from_measure_button.config(state=tk.NORMAL)
+        
+        # Calcular longitud total
+        self.measure_total_length = sum(self.lines[i]["length"] for i in self.selected_lines_for_measure)
+        
+        # Obtener todos los puntos de las líneas seleccionadas
+        points = []
+        for i in self.selected_lines_for_measure:
+            line = self.lines[i]
+            points.append(line["start"])
+            points.append(line["end"])
+        
+        # Si hay menos de 3 puntos únicos, no se puede formar un polígono
+        unique_points = list(set(points))
+        if len(unique_points) < 3:
+            self.measure_hull_points = []
+            self.measure_is_closed = False
+            self.measure_area = 0.0
+            self.measure_perimeter = 0.0
+            self.update_measure_info_labels(
+                len(self.selected_lines_for_measure),
+                self.measure_total_length,
+                False,
+                0.0,
+                0.0
+            )
+            self.redraw_canvas()
+            return
+        
+        # Ordenar puntos siguiendo el contorno de las líneas seleccionadas
+        self.measure_hull_points = self._order_polygon_points()
+        
+        # Verificar si el polígono está cerrado (todas las líneas forman un ciclo)
+        self.measure_is_closed = self._is_polygon_closed()
+        
+        # Calcular área y perímetro del polígono cerrado
+        self.measure_area = self._calculate_polygon_area(self.measure_hull_points)
+        self.measure_perimeter = self._calculate_polygon_perimeter(self.measure_hull_points)
+        
+        # Actualizar información
+        self.update_measure_info_labels(
+            len(self.selected_lines_for_measure),
+            self.measure_total_length,
+            self.measure_is_closed,
+            self.measure_area,
+            self.measure_perimeter
+        )
+        
+        # Redibujar canvas para aplicar cambios
+        self.redraw_canvas()
+    
+    def _redraw_measure_shadow(self):
+        """Redibuja el polígono sombreado de medición múltiple."""
+        if not self.measure_hull_points or len(self.measure_hull_points) < 3:
+            return
+        
+        # Dibujar sombra del polígono en coordenadas del canvas
+        canvas_points = []
+        for px, py in self.measure_hull_points:
+            cx, cy = self._transform_point(px, py)
+            canvas_points.extend([cx, cy])
+        
+        # Crear polígono sombreado (verde claro suave, con transparencia)
+        self.canvas.create_polygon(
+            canvas_points,
+            fill="#90EE90",  # Verde claro
+            stipple="gray50",  # Patrón para simular transparencia
+            outline="",
+            tags="measure_shadow"
+        )
+        
+        # Enviar al fondo para que no tape las líneas
+        self.canvas.tag_lower("measure_shadow")
+        
+        # Si el polígono no está cerrado, dibujar líneas virtuales (punteadas)
+        if not self.measure_is_closed:
+            # Dibujar líneas virtuales que conectan el hull
+            for i in range(len(self.measure_hull_points)):
+                p1 = self.measure_hull_points[i]
+                p2 = self.measure_hull_points[(i + 1) % len(self.measure_hull_points)]
+                
+                # Verificar si esta línea ya existe en las seleccionadas
+                line_exists = False
+                for line_idx in self.selected_lines_for_measure:
+                    line = self.lines[line_idx]
+                    if self._lines_match(line["start"], line["end"], p1, p2):
+                        line_exists = True
+                        break
+                
+                # Si la línea no existe, dibujarla como virtual (punteada)
+                if not line_exists:
+                    cx1, cy1 = self._transform_point(*p1)
+                    cx2, cy2 = self._transform_point(*p2)
+                    
+                    self.canvas.create_line(
+                        cx1, cy1, cx2, cy2,
+                        fill="#B0B0B0",  # Gris claro
+                        width=2,
+                        dash=(5, 5),  # Línea punteada
+                        tags="measure_virtual"
+                    )
+    
+    def _order_polygon_points(self):
+        """Ordena los puntos del polígono siguiendo el contorno de las líneas seleccionadas.
+        Este método respeta formas cóncavas (L, U, escuadra, etc.)."""
+        
+        if not self.selected_lines_for_measure:
+            return []
+        
+        # Construir un grafo de adyacencia con las líneas seleccionadas
+        graph = {}
+        for i in self.selected_lines_for_measure:
+            line = self.lines[i]
+            start = line["start"]
+            end = line["end"]
+            
+            if start not in graph:
+                graph[start] = []
+            if end not in graph:
+                graph[end] = []
+            
+            graph[start].append(end)
+            graph[end].append(start)
+        
+        # Si no hay puntos, retornar vacío
+        if not graph:
+            return []
+        
+        # Encontrar un punto de inicio (preferiblemente uno que tenga solo 1 conexión = extremo)
+        start_point = None
+        for point, neighbors in graph.items():
+            if len(neighbors) == 1:
+                # Punto extremo - ideal para empezar
+                start_point = point
+                break
+        
+        # Si no hay extremos, usar cualquier punto (polígono cerrado)
+        if start_point is None:
+            start_point = list(graph.keys())[0]
+        
+        # Recorrer el grafo siguiendo las conexiones
+        ordered_points = [start_point]
+        visited = {start_point}
+        current = start_point
+        
+        while True:
+            # Buscar el siguiente punto no visitado
+            next_point = None
+            for neighbor in graph[current]:
+                if neighbor not in visited:
+                    next_point = neighbor
+                    break
+            
+            # Si no hay más puntos sin visitar, terminar
+            if next_point is None:
+                break
+            
+            # Agregar el punto y marcarlo como visitado
+            ordered_points.append(next_point)
+            visited.add(next_point)
+            current = next_point
+            
+            # Evitar bucles infinitos
+            if len(visited) >= len(graph):
+                break
+        
+        # Si el polígono no está cerrado, necesitamos cerrar con el convex hull
+        # solo de los puntos que faltan
+        if len(ordered_points) < len(graph):
+            # Hay puntos desconectados - usar todos los puntos del grafo
+            all_points = list(graph.keys())
+            
+            # Ordenar por ángulo desde el centroide para formar un polígono razonable
+            cx = sum(p[0] for p in all_points) / len(all_points)
+            cy = sum(p[1] for p in all_points) / len(all_points)
+            
+            def angle_from_centroid(point):
+                return math.atan2(point[1] - cy, point[0] - cx)
+            
+            return sorted(all_points, key=angle_from_centroid)
+        
+        return ordered_points
+    
+    def _convex_hull(self, points):
+        """Calcula el convex hull (envolvente convexa) de un conjunto de puntos.
+        Usa el algoritmo de Graham Scan."""
+        
+        def cross_product(o, a, b):
+            """Calcula el producto cruzado de los vectores OA y OB."""
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+        
+        # Ordenar puntos lexicográficamente (por x, luego por y)
+        points = sorted(set(points))
+        
+        if len(points) <= 1:
+            return points
+        
+        # Construir el hull inferior
+        lower = []
+        for p in points:
+            while len(lower) >= 2 and cross_product(lower[-2], lower[-1], p) <= 0:
+                lower.pop()
+            lower.append(p)
+        
+        # Construir el hull superior
+        upper = []
+        for p in reversed(points):
+            while len(upper) >= 2 and cross_product(upper[-2], upper[-1], p) <= 0:
+                upper.pop()
+            upper.append(p)
+        
+        # Eliminar el último punto de cada mitad porque se repite
+        return lower[:-1] + upper[:-1]
+    
+    def _is_polygon_closed(self):
+        """Verifica si las líneas seleccionadas forman un polígono cerrado."""
+        if len(self.selected_lines_for_measure) < 3:
+            return False
+        
+        # Construir un grafo de conexiones
+        connections = {}
+        for i in self.selected_lines_for_measure:
+            line = self.lines[i]
+            start = line["start"]
+            end = line["end"]
+            
+            # Agregar conexiones
+            if start not in connections:
+                connections[start] = []
+            if end not in connections:
+                connections[end] = []
+            
+            connections[start].append(end)
+            connections[end].append(start)
+        
+        # Verificar si cada vértice tiene exactamente 2 conexiones (polígono cerrado)
+        for point, neighbors in connections.items():
+            if len(neighbors) != 2:
+                return False
+        
+        return True
+    
+    def _calculate_polygon_area(self, points):
+        """Calcula el área de un polígono usando la fórmula del Shoelace."""
+        if len(points) < 3:
+            return 0.0
+        
+        area = 0.0
+        n = len(points)
+        
+        for i in range(n):
+            j = (i + 1) % n
+            area += points[i][0] * points[j][1]
+            area -= points[j][0] * points[i][1]
+        
+        area = abs(area) / 2.0
+        
+        # Convertir de píxeles² a metros²
+        area_m2 = area / (self.SCALE * self.SCALE)
+        
+        return area_m2
+    
+    def _calculate_polygon_perimeter(self, points):
+        """Calcula el perímetro de un polígono."""
+        if len(points) < 2:
+            return 0.0
+        
+        perimeter = 0.0
+        n = len(points)
+        
+        for i in range(n):
+            j = (i + 1) % n
+            dx = points[j][0] - points[i][0]
+            dy = points[j][1] - points[i][1]
+            distance = math.sqrt(dx * dx + dy * dy)
+            perimeter += distance
+        
+        # Convertir de píxeles a metros
+        perimeter_m = perimeter / self.SCALE
+        
+        return perimeter_m
+    
+    def _lines_match(self, start1, end1, start2, end2):
+        """Verifica si dos líneas son la misma (en cualquier dirección)."""
+        threshold = 1.0  # Tolerancia de 1 píxel
+        
+        # Verificar si start1-end1 coincide con start2-end2
+        match_forward = (
+            abs(start1[0] - start2[0]) < threshold and
+            abs(start1[1] - start2[1]) < threshold and
+            abs(end1[0] - end2[0]) < threshold and
+            abs(end1[1] - end2[1]) < threshold
+        )
+        
+        # Verificar si start1-end1 coincide con end2-start2 (dirección inversa)
+        match_backward = (
+            abs(start1[0] - end2[0]) < threshold and
+            abs(start1[1] - end2[1]) < threshold and
+            abs(end1[0] - start2[0]) < threshold and
+            abs(end1[1] - start2[1]) < threshold
+        )
+        
+        return match_forward or match_backward
+    
+    def update_measure_info_labels(self, num_lines, total_length, is_closed, area, perimeter):
+        """Actualiza los labels de información en la ventana flotante."""
+        if not self.measure_info_window:
+            return
+        
+        # Actualizar número de líneas
+        self.measure_lines_label.config(
+            text=f"Líneas seleccionadas: {num_lines}"
+        )
+        
+        # Actualizar longitud total
+        self.measure_length_label.config(
+            text=f"Longitud total: {total_length:.2f} m"
+        )
+        
+        # Actualizar estado del polígono
+        if num_lines < 3:
+            self.measure_polygon_status.config(
+                text="⚠️ Selecciona más líneas",
+                fg="#FF6F00"
+            )
+        elif is_closed:
+            self.measure_polygon_status.config(
+                text="✅ Polígono: CERRADO",
+                fg="#2E7D32"
+            )
+        else:
+            self.measure_polygon_status.config(
+                text="🔷 Polígono: AUTO-CERRADO",
+                fg="#1976D2"
+            )
+        
+        # Actualizar área y perímetro
+        if num_lines >= 3 and area > 0:
+            self.measure_area_label.config(
+                text=f"Área sombreada: {area:.2f} m²"
+            )
+            self.measure_perimeter_label.config(
+                text=f"Perímetro: {perimeter:.2f} m"
+            )
+        else:
+            self.measure_area_label.config(
+                text="Área sombreada: --"
+            )
+            self.measure_perimeter_label.config(
+                text="Perímetro: --"
+            )
+    
+    def clear_multi_measure(self):
+        """Limpia la selección de medición múltiple."""
+        self.selected_lines_for_measure.clear()
+        
+        # Limpiar datos calculados
+        self.measure_hull_points = []
+        self.measure_is_closed = False
+        self.measure_area = 0.0
+        self.measure_perimeter = 0.0
+        self.measure_total_length = 0.0
+        
+        # Actualizar información
+        if self.measure_info_window:
+            self.update_measure_info_labels(0, 0.0, False, 0.0, 0.0)
+        
+        # Deshabilitar botones
+        self.clear_measure_button.config(state=tk.DISABLED)
+        self.create_zone_from_measure_button.config(state=tk.DISABLED)
+        
+        # Redibujar
+        self.redraw_canvas()
+    
+    def create_zone_from_selection(self):
+        """Crea una zona a partir de la selección actual de medición múltiple."""
+        if not self.selected_lines_for_measure:
+            messagebox.showwarning(
+                "Sin Selección",
+                "No hay líneas seleccionadas para crear una zona."
+            )
+            return
+        
+        # Desactivar modo de medición múltiple
+        self.multi_measure_mode = False
+        self.multi_measure_button.config(
+            text="📐 Medir Múltiple",
+            bg="#00BCD4"
+        )
+        
+        # Cerrar ventana de información
+        if self.measure_info_window:
+            self.measure_info_window.destroy()
+            self.measure_info_window = None
+        
+        # Copiar selección actual al sistema de zonas
+        self.selected_lines_for_zone = self.selected_lines_for_measure.copy()
+        
+        # Limpiar datos de medición
+        self.selected_lines_for_measure.clear()
+        self.measure_hull_points = []
+        self.measure_is_closed = False
+        self.measure_area = 0.0
+        self.measure_perimeter = 0.0
+        self.measure_total_length = 0.0
+        
+        # Redibujar con las líneas seleccionadas para zona
+        self.redraw_canvas()
+        
+        # Confirmar creación de zona
+        self.confirm_zone_creation()
 
 
 class ZoneDialog:
