@@ -390,7 +390,8 @@ class DrawingApp:
                 "line": line,
                 "length": length
             })
-            self.create_label(self.start_point, end_point, length)
+            # Pasar el índice de la línea recién agregada
+            self.create_label(self.start_point, end_point, length, len(self.lines) - 1)
             self.draw_anchor_points(self.start_point, end_point)
 
             # Ajustar la posición en Y para que la nueva línea se dibuje más abajo
@@ -494,7 +495,7 @@ class DrawingApp:
         # Retornar centro
         return ((min_x + max_x) / 2, (min_y + max_y) / 2)
 
-    def create_label(self, start, end, length):
+    def create_label(self, start, end, length, line_index):
         """Crea acotación profesional con líneas de extensión y cota."""
         # Calcular el ángulo de la línea
         dx = end[0] - start[0]
@@ -608,7 +609,7 @@ class DrawingApp:
         
         # Añadir evento de doble clic para editar
         self.canvas.tag_bind(label, "<Double-1>", 
-                           lambda event, idx=len(self.lines) - 1: self.on_label_double_click(idx))
+                           lambda event, idx=line_index: self.on_label_double_click(idx))
         
         # Guardar referencias de todos los elementos de la acotación
         self.labels.append({
@@ -617,7 +618,7 @@ class DrawingApp:
             'dim_line': dim_line,
             'ext_lines': [ext_line_1, ext_line_2],
             'arrows': arrow1 + arrow2,
-            'index': len(self.lines) - 1
+            'index': line_index
         })
     
     def _create_arrow_head(self, x, y, angle):
@@ -724,7 +725,8 @@ class DrawingApp:
                 width = 2
             
             self.canvas.create_line(*line["start"], *line["end"], fill=color, width=width)
-            self.create_label(line["start"], line["end"], line["length"])
+            # Pasar el índice correcto de la línea
+            self.create_label(line["start"], line["end"], line["length"], i)
             self.draw_anchor_points(line["start"], line["end"])
         
         # Redibujar etiquetas de texto personalizadas
