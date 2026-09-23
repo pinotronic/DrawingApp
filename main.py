@@ -11,7 +11,7 @@ from zone_manager import ZoneManager
 class DrawingApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Drawing App - Planos para Avalúos")
+        self.root.title("PlanoCAD - Planos para Avalúos")
 
         self.start_point = None
         self.lines = []
@@ -104,16 +104,111 @@ class DrawingApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def setup_ui(self):
+        self.root.configure(bg="#171c22")
+        self.root.geometry("1440x900+40+30")
+        self.root.minsize(1120, 700)
+
+        # Encabezado CAD con accesos reales a las acciones del proyecto.
+        app_header = tk.Frame(self.root, bg="#20262d", height=52)
+        app_header.pack(side=tk.TOP, fill=tk.X)
+        app_header.pack_propagate(False)
+
+        brand = tk.Frame(app_header, bg="#20262d")
+        brand.pack(side=tk.LEFT, padx=(16, 22), fill=tk.Y)
+        tk.Label(
+            brand, text="▱", font=("Segoe UI Symbol", 21, "bold"),
+            bg="#20262d", fg="#70b7ff"
+        ).pack(side=tk.LEFT, padx=(0, 9))
+        brand_text = tk.Frame(brand, bg="#20262d")
+        brand_text.pack(side=tk.LEFT, anchor="center")
+        tk.Label(
+            brand_text, text="PLANO CAD", font=("Segoe UI", 11, "bold"),
+            bg="#20262d", fg="#f0f4f8"
+        ).pack(anchor="w")
+        tk.Label(
+            brand_text, text="AVALÚOS", font=("Segoe UI", 7, "bold"),
+            bg="#20262d", fg="#83909d"
+        ).pack(anchor="w")
+
+        menu_bar = tk.Frame(app_header, bg="#20262d")
+        menu_bar.pack(side=tk.LEFT, fill=tk.Y)
+        file_menu_button = tk.Menubutton(
+            menu_bar, text="Archivo", bg="#20262d", fg="#c8d0d8",
+            activebackground="#303943", activeforeground="white",
+            relief=tk.FLAT, padx=10, font=("Segoe UI", 9)
+        )
+        file_menu = tk.Menu(file_menu_button, tearoff=False)
+        file_menu.add_command(label="Nuevo proyecto", command=self.new_project)
+        file_menu.add_command(label="Abrir proyecto…", command=self.open_project)
+        file_menu.add_command(label="Guardar proyecto", command=self.save_project, accelerator="Ctrl+S")
+        file_menu.add_separator()
+        file_menu.add_command(label="Exportar a SVG…", command=self.export_to_svg)
+        file_menu.add_separator()
+        file_menu.add_command(label="Salir", command=self.root.destroy)
+        file_menu_button.configure(menu=file_menu)
+        file_menu_button.pack(side=tk.LEFT, fill=tk.Y)
+
+        drawing_menu_button = tk.Menubutton(
+            menu_bar, text="Dibujo", bg="#20262d", fg="#c8d0d8",
+            activebackground="#303943", activeforeground="white",
+            relief=tk.FLAT, padx=10, font=("Segoe UI", 9)
+        )
+        drawing_menu = tk.Menu(drawing_menu_button, tearoff=False)
+        drawing_menu.add_command(label="Dibujar línea…", command=self.draw_line)
+        drawing_menu.add_command(label="Establecer punto de inicio", command=self.set_start_point)
+        drawing_menu.add_command(label="Agregar etiqueta", command=self.enable_add_label_mode)
+        drawing_menu.add_separator()
+        drawing_menu.add_command(label="Medición múltiple", command=self.toggle_multi_measure_mode)
+        drawing_menu.add_command(label="Crear zona", command=self.start_zone_creation)
+        drawing_menu_button.configure(menu=drawing_menu)
+        drawing_menu_button.pack(side=tk.LEFT, fill=tk.Y)
+
+        view_menu_button = tk.Menubutton(
+            menu_bar, text="Vista", bg="#20262d", fg="#c8d0d8",
+            activebackground="#303943", activeforeground="white",
+            relief=tk.FLAT, padx=10, font=("Segoe UI", 9)
+        )
+        view_menu = tk.Menu(view_menu_button, tearoff=False)
+        view_menu.add_command(label="Acercar", command=self.zoom_in)
+        view_menu.add_command(label="Alejar", command=self.zoom_out)
+        view_menu.add_command(label="Restablecer zoom", command=self.reset_zoom)
+        view_menu.add_separator()
+        view_menu.add_command(label="Centrar dibujo", command=self.center_drawing)
+        view_menu_button.configure(menu=view_menu)
+        view_menu_button.pack(side=tk.LEFT, fill=tk.Y)
+
+        tk.Label(
+            app_header, text="Plano sin título", font=("Segoe UI", 9),
+            bg="#20262d", fg="#aeb8c2"
+        ).pack(side=tk.LEFT, padx=18)
+
+        header_actions = tk.Frame(app_header, bg="#20262d")
+        header_actions.pack(side=tk.RIGHT, padx=14)
+        tk.Button(
+            header_actions, text="Guardar", command=self.save_project,
+            bg="#2d75b8", fg="white", activebackground="#3989d0",
+            activeforeground="white", relief=tk.FLAT, bd=0,
+            padx=13, pady=6, font=("Segoe UI", 9, "bold"), cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=(8, 0), pady=8)
+        tk.Label(
+            header_actions, text="●  Listo", font=("Segoe UI", 8),
+            bg="#20262d", fg="#70c995"
+        ).pack(side=tk.RIGHT, padx=12)
+
         # Barra de herramientas IZQUIERDA con scroll
-        toolbar_container = tk.Frame(self.root, bg="#f0f0f0", width=200)
-        toolbar_container.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+        toolbar_container = tk.Frame(self.root, bg="#222830", width=244)
+        toolbar_container.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 1), pady=0)
+        toolbar_container.pack_propagate(False)
         
         # Canvas para el scroll
-        toolbar_canvas = tk.Canvas(toolbar_container, bg="#f0f0f0", width=200, highlightthickness=0)
-        scrollbar = tk.Scrollbar(toolbar_container, orient="vertical", command=toolbar_canvas.yview)
+        toolbar_canvas = tk.Canvas(toolbar_container, bg="#222830", width=244, highlightthickness=0)
+        scrollbar = tk.Scrollbar(
+            toolbar_container, orient="vertical", command=toolbar_canvas.yview,
+            bg="#303943", troughcolor="#222830", activebackground="#536170"
+        )
         
         # Frame scrollable
-        toolbar = tk.Frame(toolbar_canvas, bg="#f0f0f0")
+        toolbar = tk.Frame(toolbar_canvas, bg="#222830")
         
         # Configurar scroll
         toolbar.bind(
@@ -589,10 +684,74 @@ class DrawingApp:
 
         # Canvas en el centro
         self.canvas = tk.Canvas(self.root, width=1100, height=700, bg="white")
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.canvas.configure(bg="#f7f9fc", highlightthickness=0)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=0, pady=0)
         
         # Panel lateral derecho para lista de zonas
         self.create_zone_panel()
+        self.style_cad_toolbar(toolbar, toolbar_canvas)
+        self.canvas.bind("<Configure>", lambda event: self.redraw_canvas())
+
+    def style_cad_toolbar(self, toolbar, toolbar_canvas):
+        """Aplica un tema CAD coherente a las herramientas existentes."""
+        palette = {
+            "surface": "#222830", "surface_alt": "#29313a", "border": "#39434e",
+            "text": "#dce3e9", "muted": "#8794a1", "blue": "#286da8",
+            "blue_hover": "#347fbf", "red": "#713c42"
+        }
+        toolbar.configure(bg=palette["surface"])
+        toolbar_canvas.configure(bg=palette["surface"])
+
+        def style_children(parent):
+            for widget in parent.winfo_children():
+                if isinstance(widget, tk.Frame):
+                    if int(widget.cget("height") or 0) <= 3:
+                        widget.configure(bg=palette["border"])
+                    else:
+                        widget.configure(bg=palette["surface"])
+                elif isinstance(widget, tk.Label):
+                    text = widget.cget("text")
+                    current_bg = widget.cget("bg")
+                    if current_bg in ("#E8F5E9", "#E3F2FD", "#E0F7FA", "#FFF3E0"):
+                        widget.configure(relief=tk.FLAT, borderwidth=0)
+                    else:
+                        is_heading = text.startswith(("🛠️", "📏", "🏷️", "📐", "🏠", "🧭", "🔍", "⚙️"))
+                        widget.configure(
+                            bg=palette["surface"],
+                            fg=palette["text"] if is_heading else palette["muted"],
+                            font=("Segoe UI", 10 if is_heading else 9,
+                                  "bold" if is_heading else "normal")
+                        )
+                elif isinstance(widget, tk.Entry):
+                    widget.configure(
+                        bg="#171c22", fg=palette["text"], insertbackground="white",
+                        relief=tk.FLAT, highlightthickness=1,
+                        highlightbackground=palette["border"], highlightcolor="#4b9bea"
+                    )
+                elif isinstance(widget, tk.Scale):
+                    widget.configure(bg=palette["surface"], fg=palette["muted"],
+                                     troughcolor=palette["border"], activebackground="#4b9bea")
+                elif isinstance(widget, tk.Button):
+                    label = widget.cget("text").lower()
+                    is_primary = any(key in label for key in (
+                        "dibujar línea", "punto de inicio", "guardar proyecto", "análisis ia",
+                        "crear zona", "auto-detectar", "centrar dibujo", "medir múltiple"
+                    ))
+                    is_danger = any(key in label for key in ("limpiar todo", "eliminar zona"))
+                    bg = palette["red"] if is_danger else palette["blue"] if is_primary else palette["surface_alt"]
+                    widget.configure(
+                        bg=bg, fg="white" if (is_primary or is_danger) else palette["text"],
+                        activebackground=palette["blue_hover"] if is_primary else "#3a4551",
+                        activeforeground="white", disabledforeground="#66717d",
+                        relief=tk.FLAT, bd=0, padx=8, pady=5,
+                        font=("Segoe UI", 9, "bold" if is_primary or is_danger else "normal"),
+                        cursor="hand2"
+                    )
+                    if widget.master is toolbar:
+                        widget.pack_configure(fill=tk.X, padx=10, pady=3)
+                style_children(widget)
+
+        style_children(toolbar)
 
     def toggle_fixed_movement_mode(self):
         self.fixed_movement_mode = not self.fixed_movement_mode
@@ -1035,6 +1194,7 @@ class DrawingApp:
 
     def redraw_canvas(self):
         self.canvas.delete("all")
+        self.draw_cad_grid()
         
         # Redibujar zonas primero (para que queden detrás)
         for zone in self.zone_manager.get_all_zones():
@@ -1113,6 +1273,38 @@ class DrawingApp:
         
         # Dibujar rosa de los vientos (siempre al final, encima de todo)
         self.draw_compass()
+
+    def draw_cad_grid(self):
+        """Dibuja una retícula discreta que acompaña el zoom y el desplazamiento."""
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
+        if width < 20 or height < 20:
+            return
+
+        step = max(12, min(100, int(25 * self.zoom_level)))
+        major_step = step * 4
+        x_start = int(self.canvas_offset_x % step)
+        y_start = int(self.canvas_offset_y % step)
+
+        x = x_start
+        while x < width:
+            major = (x - x_start) % major_step == 0
+            self.canvas.create_line(
+                x, 0, x, height,
+                fill="#dce3eb" if major else "#edf0f4",
+                width=1, tags="cad_grid"
+            )
+            x += step
+
+        y = y_start
+        while y < height:
+            major = (y - y_start) % major_step == 0
+            self.canvas.create_line(
+                0, y, width, y,
+                fill="#dce3eb" if major else "#edf0f4",
+                width=1, tags="cad_grid"
+            )
+            y += step
 
     def draw_compass(self):
         """Dibuja la rosa de los vientos estática en la esquina superior derecha."""
@@ -1769,7 +1961,7 @@ class DrawingApp:
     
     def update_window_title(self):
         """Actualiza el título de la ventana con el nombre del archivo y estado de guardado."""
-        title = "Drawing App - Planos para Avalúos"
+        title = "PlanoCAD - Planos para Avalúos"
         if self.current_file:
             filename = self.current_file.split('/')[-1].split('\\')[-1]
             title = f"{filename} - {title}"
@@ -2316,30 +2508,36 @@ class DrawingApp:
     def create_zone_panel(self):
         """Crea el panel lateral para gestionar zonas."""
         # Frame lateral derecho
-        self.zone_panel = tk.Frame(self.root, width=250, bg="#f0f0f0")
-        self.zone_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
+        self.zone_panel = tk.Frame(self.root, width=270, bg="#252c34")
+        self.zone_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=0, pady=0)
+        self.zone_panel.pack_propagate(False)
         
         # Título del panel
         title_label = tk.Label(
             self.zone_panel,
             text="📐 Zonas/Habitaciones",
-            font=("Arial", 12, "bold"),
-            bg="#f0f0f0"
+            font=("Segoe UI", 11, "bold"),
+            bg="#252c34", fg="#e1e7ed"
         )
-        title_label.pack(pady=10)
+        title_label.pack(anchor="w", padx=16, pady=(19, 14))
         
         # Lista de zonas con scrollbar
-        list_frame = tk.Frame(self.zone_panel, bg="#f0f0f0")
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        list_frame = tk.Frame(self.zone_panel, bg="#252c34")
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 8))
         
-        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar = tk.Scrollbar(
+            list_frame, bg="#303943", troughcolor="#1d232a", activebackground="#536170"
+        )
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.zone_listbox = tk.Listbox(
             list_frame,
             yscrollcommand=scrollbar.set,
-            font=("Arial", 10),
-            selectmode=tk.SINGLE
+            font=("Segoe UI", 9), selectmode=tk.SINGLE,
+            bg="#1d232a", fg="#d5dde5", selectbackground="#286da8",
+            selectforeground="white", relief=tk.FLAT, borderwidth=0,
+            highlightthickness=1, highlightbackground="#39434e",
+            activestyle="none"
         )
         self.zone_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.zone_listbox.yview)
@@ -2351,11 +2549,10 @@ class DrawingApp:
         self.zone_summary_label = tk.Label(
             self.zone_panel,
             text="Total: 0 zonas | 0.00 m²",
-            font=("Arial", 9),
-            bg="#f0f0f0",
-            fg="#666"
+            font=("Segoe UI", 9),
+            bg="#252c34", fg="#9aa6b2"
         )
-        self.zone_summary_label.pack(pady=5)
+        self.zone_summary_label.pack(anchor="w", padx=16, pady=(4, 16))
     
     def start_zone_creation(self):
         """Inicia el modo de creación de zona."""
